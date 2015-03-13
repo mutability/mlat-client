@@ -738,7 +738,7 @@ class MlatWriterThread(BaseThread):
                 now = time.time()
                 for msg in msgs:
                     if (now - msg['@']) < 5.0:
-                        line = json.dumps(msg, separators=(',',':'), sort_keys=True)
+                        line = json.dumps(msg, separators=(',',':'))
                         self.st_msg_sent += 1
                         self.st_data_raw += len(line)
                         to_send.append(line)
