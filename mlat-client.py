@@ -69,7 +69,7 @@ class Aircraft:
         self.odd_timestamp = None
 
 class BeastReaderThread(BaseThread):
-    def __init__(self, host, port):
+    def __init__(self, host, port, random_drop):
         BaseThread.__init__(self, name="beast-in")
         self.consumer = None
         self.host = host
@@ -78,6 +78,7 @@ class BeastReaderThread(BaseThread):
         self.next_expiry_time = time.time()
         self.last_ref_timestamp = 0
         self.last_rcv_timestamp = 0
+        self.random_drop = int(256 * random_drop / 100)
 
         self.reset_stats()
 
@@ -94,6 +95,7 @@ class BeastReaderThread(BaseThread):
 
     def reset_stats(self):
         self.st_msg_in = 0
+        self.st_msg_random_drop = 0
         self.st_msg_discard_timestamp = 0
         self.st_msg_dfmisc = 0
         self.st_msg_dfmisc_candidates = 0
@@ -212,6 +214,10 @@ class BeastReaderThread(BaseThread):
     def process_message(self, message):
         self.st_msg_in += 1
 
+        if self.random_drop and message[-1] < self.random_drop: # last byte, part of the checksum, should be fairly randomly distributed
+            self.st_msg_random_drop += 1
+            return;
+
         if message.timestamp < self.last_rcv_timestamp:
             self.st_msg_discard_timestamp += 1
             return
@@ -329,8 +335,9 @@ class BeastReaderThread(BaseThread):
         elapsed = (end - start)
         with global_log_lock: # don't interleave
             self.log('Elapsed:            {0:.0f} seconds', elapsed)
-            self.log('Messages received:  {0}', self.st_msg_in)
-            self.log('Timestamp discards: {0}', self.st_msg_discard_timestamp)
+            self.log('Messages received:  {0} ({1:.1f}/s)', self.st_msg_in, self.st_msg_in / elapsed)
+            self.log(' Random drop:       {0}', self.st_msg_random_drop)
+            self.log(' Timestamp discard: {0}', self.st_msg_discard_timestamp)
             self.log('DF17:               {0}', self.st_msg_df17)
             self.log(' Ref candidates:    {0} ({1:.1f}%)', self.st_msg_df17_candidates, 100.0 * self.st_msg_df17_candidates / self.st_msg_df17 if self.st_msg_df17 else 0)
             self.log('DF11:               {0}', self.st_msg_df11)
@@ -342,6 +349,7 @@ class BeastReaderThread(BaseThread):
                             {
                                 'elapsed'               : round(elapsed,1),
                                 'msg_in'                : self.st_msg_in,
+                                'msg_random_drop'       : self.st_msg_random_drop,
                                 'msg_discard_timestamp' : self.st_msg_discard_timestamp,
                                 'msg_df11'              : self.st_msg_df11,
                                 'msg_df11_candidates'   : self.st_msg_df11_candidates,
@@ -644,12 +652,16 @@ def main():
                         help="Don't offer to use zlib compression to the multilateration server",
                         action='store_false',
                         default=True)
+    parser.add_argument('--random-drop',
+                        type=percentage,
+                        help="Drop some percentage of messages",
+                        default=0)
 
     args = parser.parse_args()
 
-    reader = BeastReaderThread(host=args.input_host, port=args.input_port)
+    reader = BeastReaderThread(host=args.input_host, port=args.input_port, random_drop=args.random_drop)
     writer = MlatWriterThread(host=args.output_host, port=args.output_port,
-                              handshake_data={'lat':args.lat, 'lon':args.lon, 'alt':args.alt, 'user':args.user},
+                              handshake_data={'lat':args.lat, 'lon':args.lon, 'alt':args.alt, 'user':args.user,'random_drop':args.random_drop},
                               set_consumer=reader.set_consumer, offer_zlib=args.compress)
 
     reader.start()
