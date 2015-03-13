@@ -690,7 +690,7 @@ class MlatWriterThread(BaseThread):
 
         if 'deny' in response:
             self.log('Server explicitly rejected our connection, saying:')
-            for reason in deny:
+            for reason in response['deny']:
                 self.log('  {0}', reason)
             raise IOError('Server rejected our connection attempt')
 
