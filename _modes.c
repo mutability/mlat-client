@@ -36,9 +36,12 @@ static PyObject *modesmessage_str(PyObject *self);
 static PyObject *modesmessage_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
 static int modesmessage_init(modesmessage *self, PyObject *args, PyObject *kwds);
 static void modesmessage_dealloc(modesmessage *self);
+/* sequence support functions */
+static Py_ssize_t modesmessage_sq_length(modesmessage *self);
+static PyObject *modesmessage_sq_item(modesmessage *self, Py_ssize_t i);
 /* buffer support functions */
-static Py_ssize_t modesmessage_getreadbuffer(PyObject *self, Py_ssize_t segment, void **ptrptr);
-static Py_ssize_t modesmessage_segcount(PyObject *self, Py_ssize_t *lenp);
+static Py_ssize_t modesmessage_bf_getreadbuffer(modesmessage *self, Py_ssize_t segment, void **ptrptr);
+static Py_ssize_t modesmessage_bf_segcount(modesmessage *self, Py_ssize_t *lenp);
 /* internal factory function */
 static PyObject *modesmessage_from_buffer(unsigned long long timestamp, unsigned signal, uint8_t *data, int datalen);
 /* decoder */
@@ -272,10 +275,21 @@ static PyMemberDef modesmessageMembers[] = {
 };
 
 static PyBufferProcs modesmessageBufferProcs = {
-    modesmessage_getreadbuffer,   /* bf_getreadbuffer  */
-    0,                            /* bf_getwritebyffer */
-    modesmessage_segcount,        /* bf_getsegcount    */
-    0,                            /* bf_getcharbuffer  */
+    (readbufferproc)modesmessage_bf_getreadbuffer,    /* bf_getreadbuffer  */
+    0,                                                /* bf_getwritebyffer */
+    (segcountproc)modesmessage_bf_segcount,           /* bf_getsegcount    */
+    0,                                                /* bf_getcharbuffer  */
+};
+
+static PySequenceMethods modesmessageSequenceMethods = {
+    (lenfunc)modesmessage_sq_length,    /* sq_length */
+    0,                                  /* sq_concat */
+    0,                                  /* sq_repeat */
+    (ssizeargfunc)modesmessage_sq_item, /* sq_item */
+    0,                                  /* sq_ass_item */
+    0,                                  /* sq_contains */
+    0,                                  /* sq_inplace_concat */
+    0,                                  /* sq_inplace_repeat */
 };
 
 static PyTypeObject modesmessageType = {
@@ -291,7 +305,7 @@ static PyTypeObject modesmessageType = {
     (cmpfunc)modesmessage_compare,    /* tp_compare     */
     (reprfunc)modesmessage_repr,      /* tp_repr        */
     0,                                /* tp_as_number   */
-    0,                                /* tp_as_sequence */
+    &modesmessageSequenceMethods,     /* tp_as_sequence */
     0,                                /* tp_as_mapping  */
     (hashfunc)modesmessage_hash,      /* tp_hash        */
     0,                                /* tp_call        */
@@ -597,22 +611,37 @@ static int modesmessage_decode(modesmessage *self)
     return 0;
 }
 
-static Py_ssize_t modesmessage_getreadbuffer(PyObject *self, Py_ssize_t segment, void **ptrptr)
+static Py_ssize_t modesmessage_bf_getreadbuffer(modesmessage *self, Py_ssize_t segment, void **ptrptr)
 {
     if (segment != 0) {
         PyErr_SetString(PyExc_SystemError, "segment out of range");
         return -1;
     }
 
-    *ptrptr = ((modesmessage*)self)->data;
-    return ((modesmessage*)self)->datalen;
+    *ptrptr = self->data;
+    return self->datalen;
 }
 
-static Py_ssize_t modesmessage_segcount(PyObject *self, Py_ssize_t *lenp)
+static Py_ssize_t modesmessage_bf_segcount(modesmessage *self, Py_ssize_t *lenp)
 {
     if (lenp)
-        *lenp = ((modesmessage*)self)->datalen;
+        *lenp = self->datalen;
     return 1;
+}
+
+static Py_ssize_t modesmessage_sq_length(modesmessage *self)
+{
+    return self->datalen;
+}
+
+static PyObject *modesmessage_sq_item(modesmessage *self, Py_ssize_t i)
+{
+    if (i < 0 || i >= self->datalen) {
+        PyErr_SetString(PyExc_IndexError, "byte index out of range");
+        return NULL;
+    }
+
+    return PyInt_FromLong(self->data[i]);
 }
 
 static long modesmessage_hash(PyObject *self)
