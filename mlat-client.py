@@ -208,7 +208,7 @@ class BeastReaderThread(BaseThread):
             if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
                 del self.aircraft[ac.icao]
                 
-        expired = len(self.aircraft) - total
+        expired = total - len(self.aircraft)
         self.log('Expired {0}/{1} aircraft', expired, total)
 
     def process_message(self, message):
