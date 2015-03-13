@@ -651,7 +651,7 @@ static int modesmessage_compare(PyObject *self, PyObject *other)
     return memcmp(message1->data, message2->data, message1->datalen);
 }
 
-static char *hexdigit = "0123456789ABCDEF";
+static char *hexdigit = "0123456789abcdef";
 static PyObject *modesmessage_repr(PyObject *self)
 {
     modesmessage *message = (modesmessage *)self;
