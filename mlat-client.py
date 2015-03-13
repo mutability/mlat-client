@@ -83,12 +83,12 @@ class BeastReaderThread(BaseThread):
         self.reset_stats()
 
         self.handlers = {
-            0: self.process_df_misc,
-            4: self.process_df_misc,
-            5: self.process_df_misc,
-            16: self.process_df_misc,
-            20: self.process_df_misc,
-            21: self.process_df_misc,
+            0: self.process_df_misc_alt,
+            4: self.process_df_misc_alt,
+            5: self.process_df_misc_noalt,
+            16: self.process_df_misc_alt,
+            20: self.process_df_misc_alt,
+            21: self.process_df_misc_noalt,
             11: self.process_df11,
             17: self.process_df17
         }
@@ -230,7 +230,7 @@ class BeastReaderThread(BaseThread):
         handler = self.handlers.get(message.df)
         if handler: handler(message)
 
-    def process_df_misc(self, message):
+    def process_df_misc_noalt(self, message):
         self.st_msg_dfmisc += 1
 
         ac = self.aircraft.get(message.address)
@@ -238,22 +238,40 @@ class BeastReaderThread(BaseThread):
         
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
+
+        if ac.messages < 10: return   # wait for more messages
+        if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
+        if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
+        if message.timestamp - ac.last_altitude_timestamp > TS(15): return     # too long since altitude reported
+
+        # Candidate for MLAT
+        self.st_msg_dfmisc_candidates += 1
+        now = time.time()
+        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}","a":{3}}}}}'.format(now, message.timestamp, str(message), ac.altitude)
+        self.send_message_raw(now,line)
+
+    def process_df_misc_alt(self, message):
+        self.st_msg_dfmisc += 1
+
+        if not message.altitude: return
+
+        ac = self.aircraft.get(message.address)
+        if not ac: return False  # not a known ICAO
+        
+        ac.messages += 1
+        ac.last_message_timestamp = message.timestamp
         ac.last_altitude_timestamp = message.timestamp
-        if message.altitude is not None: ac.altitude = message.altitude
+        ac.altitude = message.altitude
 
         if ac.messages < 10: return   # wait for more messages
         if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
         if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
 
         # Candidate for MLAT
-
         self.st_msg_dfmisc_candidates += 1
-        self.send_message({ 'find':
-                            {
-                                't' : message.timestamp,
-                                'm' : str(message),
-                            }
-                        })
+        now = time.time()
+        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}"}}}}'.format(now, message.timestamp, str(message))
+        self.send_message_raw(now,line)
 
     def process_df11(self, message):
         self.st_msg_df11 += 1
@@ -269,20 +287,16 @@ class BeastReaderThread(BaseThread):
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return   # wait for more messages
+        if ac.altitude is None: return    # need an altitude
         if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
         if (message.timestamp - self.last_ref_timestamp) > TS(15): return      # too long since we sent a clock reference, can't mlat
         if (message.timestamp - ac.last_altitude_timestamp) > TS(15): return   # no recent altitude available
 
         # Candidate for MLAT
-
         self.st_msg_df11_candidates += 1
-        self.send_message({ 'find':
-                            {
-                                't' : message.timestamp,
-                                'm' : str(message),
-                                'a' : ac.altitude
-                            }
-                        })
+        now = time.time()
+        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}","a":{3}}}}}'.format(now, message.timestamp, str(message), ac.altitude)
+        self.send_message_raw(now,line)
 
     def process_df17(self, message):
         self.st_msg_df17 += 1
@@ -298,6 +312,7 @@ class BeastReaderThread(BaseThread):
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return
+        if message.altitude is None: return    # need an altitude
 
         if message.even_cpr:
             ac.last_position_timestamp = message.timestamp
@@ -313,23 +328,23 @@ class BeastReaderThread(BaseThread):
         if not ac.even_message or not ac.odd_message: return
         if abs(ac.even_timestamp - ac.odd_timestamp) > TS(5): return
 
-        self.st_msg_df17_candidates += 1
 
         # this is a useful reference message pair
-        self.send_message({ 'ref' :
-                            {
-                                'et' : ac.even_timestamp,
-                                'em' : str(ac.even_message),
-                                'ot' : ac.odd_timestamp,
-                                'om' : str(ac.odd_message)
-                            }
-                        })
         self.last_ref_timestamp = message.timestamp
+        self.st_msg_df17_candidates += 1
+        now = time.time()
+        line = '{{"ref":{{"@":{0},"et":{1},"em":"{2}","ot":{3},"om":"{4}"}}}}'.format(now, ac.even_timestamp, str(ac.even_message), ac.odd_timestamp, str(ac.odd_message))
+        self.send_message_raw(now,line)
         
     def send_message(self, msg):
         c = self.consumer # copy in case of concurrent modification
         if not c: return        
-        c(msg)
+        c.send_message(msg)
+
+    def send_message_raw(self, t, msg):
+        c = self.consumer # copy in case of concurrent modification
+        if not c: return        
+        c.send_message_raw(t, msg)
 
     def show_stats(self, start, end):
         elapsed = (end - start)
@@ -381,14 +396,18 @@ class MlatWriterThread(BaseThread):
         self.st_data_raw = 0
         self.st_data_sent = 0
 
-    def send_message(self, msg):
-        msg['@'] = round(time.time(), 1)
+    def send_message_raw(self, t, line):
         with self.wakeup:
             self.st_msg_produced += 1
             if not self.connected:
                 self.st_msg_dropped += 1
                 return
-            self.queue.append(msg)
+            self.queue.append((t,line))
+
+    def send_message(self, msg):
+        t = time.time()
+        msg['@'] = round(t,1)
+        self.send_message_raw(t,json.dumps(msg, separators=(',',':')))
 
     def run(self):
         self.log("Starting")
@@ -401,7 +420,7 @@ class MlatWriterThread(BaseThread):
                     self.handshake(s)
                     self.connected = True
                     self.queue = []
-                    self.set_consumer(self.send_message)
+                    self.set_consumer(self)
 
                     self.write_messages(s)
 
@@ -539,9 +558,8 @@ class MlatWriterThread(BaseThread):
                         msgs = self.queue
                         self.queue = []
                         to_send = []
-                        for msg in msgs:
-                            if (now - msg['@']) < 1.0:
-                                line = json.dumps(msg, separators=(',',':'))
+                        for t,line in msgs:
+                            if (now - t) < 1.0:
                                 self.st_msg_sent += 1
                                 self.st_data_raw += len(line)
                                 to_send.append(line)
@@ -612,7 +630,7 @@ def main():
         return port
 
     def percentage(s):
-        p = float(s)
+        p = int(s)
         if p < 0 or p > 100:
             raise argparse.ArgumentTypeError('Percentage %s must be in the range 0 to 100' % s)
         return p
