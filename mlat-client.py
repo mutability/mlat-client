@@ -244,6 +244,7 @@ class BeastReaderThread(BaseThread):
     def read_data(self, s):
         start = time.time()
         next_stats = start + STATS_INTERVAL
+        next_expiry = start + 60.0
         self.reset_stats()
 
         try:
@@ -251,7 +252,7 @@ class BeastReaderThread(BaseThread):
             buf = bytearray()
             while self.consumer and not self.terminating:
                 try:
-                    moredata = bytearray(s.recv(4096))
+                    moredata = bytearray(s.recv(16384))
                 except socket.timeout as e:
                     continue
 
@@ -267,12 +268,13 @@ class BeastReaderThread(BaseThread):
                 if len(buf) > 512:
                     raise ParseError('parser broken - buffer not being consumed')
 
-                self.expire_data()
-
                 now = time.time()
                 if now > next_stats:
                     next_stats = now + STATS_INTERVAL
                     self.show_stats(start, now)
+                if now > next_expiry:
+                    next_expiry = now + 60
+                    self.expire_data_now()
 
         finally:
             self.show_stats(start, time.time())
@@ -283,11 +285,7 @@ class BeastReaderThread(BaseThread):
             self.process_message(timestamp, signal, payload)
         return consumed
 
-    def expire_data(self):
-        now = time.time()
-        if now < self.next_expiry_time: return
-        self.next_expiry_time = now + 60.0
-
+    def expire_data_now(self):
         for ac in self.aircraft.values():
             if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
                 del self.aircraft[ac.icao]
@@ -586,7 +584,6 @@ class MlatWriterThread(BaseThread):
                 self.st_msg_dropped += 1
                 return
             self.queue.append(msg)
-            self.wakeup.notify()
 
     def run(self):
         self.log("Starting")
@@ -714,38 +711,39 @@ class MlatWriterThread(BaseThread):
     def write_messages(self, s):
         start = time.time()
         next_stats = start + STATS_INTERVAL
+        next_write = start + 0.5
         self.reset_stats()
 
         try:
-            while not self.terminating:
+            while True:
                 with self.wakeup:
                     now = time.time()
-                    while not self.terminating and not self.queue and now < next_stats:
+                    while not self.terminating and now < next_stats and now < next_write:
                         self.wakeup.wait()
                         now = time.time()
                 
+                    if self.terminating: return
+
                     if now >= next_stats:
                         self.show_stats(start, now)
                         next_stats = now + STATS_INTERVAL
 
-                    if self.terminating or not self.queue:
-                        continue
+                    if now >= next_write:
+                        next_write = now + 0.5
 
-                    msgs = self.queue
-                    self.queue = []
-
-                to_send = []
-                now = time.time()
-                for msg in msgs:
-                    if (now - msg['@']) < 5.0:
-                        line = json.dumps(msg, separators=(',',':'))
-                        self.st_msg_sent += 1
-                        self.st_data_raw += len(line)
-                        to_send.append(line)
-                    else:
-                        self.st_msg_dropped += 1
+                        msgs = self.queue
+                        self.queue = []
+                        to_send = []
+                        for msg in msgs:
+                            if (now - msg['@']) < 1.0:
+                                line = json.dumps(msg, separators=(',',':'))
+                                self.st_msg_sent += 1
+                                self.st_data_raw += len(line)
+                                to_send.append(line)
+                            else:
+                                self.st_msg_dropped += 1
                         
-                self.write(s, to_send)
+                        self.write(s, to_send)
         finally:
             self.show_stats(start, time.time())
 
