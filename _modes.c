@@ -211,7 +211,7 @@ packetize_beast_input(PyObject *self, PyObject *args)
         PyTuple_SET_ITEM(message_tuple, message_count, message_tuples[message_count]); /* steals ref */
     }
     
-    rv = Py_BuildValue("(lO)", (long) ((void*)p - buffer.buf), message_tuple);
+    rv = Py_BuildValue("(lN)", (long) ((void*)p - buffer.buf), message_tuple);
 
  out:
     while (--message_count >= 0) {
