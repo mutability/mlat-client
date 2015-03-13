@@ -75,17 +75,17 @@ crc_residual(PyObject *self, PyObject *args)
 static PyObject *
 build_beast_message_tuple(uint64_t timestamp, uint8_t signal, uint8_t *data, int datalen)
 {
-    PyObject *t1 = NULL, *t2 = NULL, *t3 = NULL, *rv = NULL;
-    
-    if (! (t1 = PyLong_FromUnsignedLongLong(timestamp)) ||
-        ! (t2 = PyInt_FromLong(signal)) ||
-        ! (t3 = PyByteArray_FromStringAndSize((char*)data, datalen)) ||
-        ! (rv = PyTuple_Pack(3, t1, t2, t3))) {
-        if (t1) Py_DECREF(t1);
-        if (t2) Py_DECREF(t2);
-        if (t3) Py_DECREF(t3);
+    PyObject *t1=NULL, *t2=NULL, *t3=NULL, *rv=NULL;
+
+    if ((t1 = PyLong_FromUnsignedLongLong(timestamp))!=NULL &&
+        (t2 = PyInt_FromLong(signal))!=NULL &&
+        (t3 = PyByteArray_FromStringAndSize((char*)data, datalen))!=NULL) {
+        rv = PyTuple_Pack(3, t1, t2, t3);
     }
 
+    Py_XDECREF(t1);
+    Py_XDECREF(t2);
+    Py_XDECREF(t3);
     return rv;
 }
 
