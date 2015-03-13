@@ -719,7 +719,7 @@ class MlatWriterThread(BaseThread):
                 with self.wakeup:
                     now = time.time()
                     while not self.terminating and now < next_stats and now < next_write:
-                        self.wakeup.wait()
+                        self.wakeup.wait(min(next_stats,next_write) - now)
                         now = time.time()
                 
                     if self.terminating: return
