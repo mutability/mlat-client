@@ -82,8 +82,8 @@ build_beast_message_tuple(uint64_t timestamp, uint8_t signal, uint8_t *data, int
         ! (t3 = PyByteArray_FromStringAndSize((char*)data, datalen)) ||
         ! (rv = PyTuple_Pack(3, t1, t2, t3))) {
         if (t1) Py_DECREF(t1);
-        if (t2) Py_DECREF(t1);
-        if (t3) Py_DECREF(t1);
+        if (t2) Py_DECREF(t2);
+        if (t3) Py_DECREF(t3);
     }
 
     return rv;
