@@ -12,48 +12,287 @@ import sys
 if __name__ == '__main__':
     print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
 
-import socket, json, time, traceback
-import zlib, struct, argparse, random
+import socket, json, time, traceback, asyncore, zlib, argparse, struct
 from contextlib import closing
-from threading import *
+
 import _modes
 
-class ParseError(RuntimeError): pass
-class UnderflowError(ParseError): pass
+def TS(t):
+    return t * 12e6
 
-STATS_INTERVAL = 900.0
-RECONNECT_INTERVAL = 60.0
+def log(msg, *args, **kwargs):
+    print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
 
-global_log_lock = RLock()
-def global_log(msg):
-    with global_log_lock:
-        print >>sys.stderr, time.ctime(), msg
+def log_exc(msg, *args, **kwards):
+    print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
+    traceback.print_exc(sys.stderr)
 
-def global_log_exc(msg):
-    with global_log_lock:
-        print >>sys.stderr, time.ctime(), msg
-        traceback.print_exc(sys.stderr)
+class ReconnectingConnection(asyncore.dispatcher):
+    reconnect_interval = 30.0
 
-def TS(seconds): return 12e6 * seconds
+    def __init__(self, host, port):
+        asyncore.dispatcher.__init__(self)
+        self.host = host
+        self.port = port
+        self.state = 'disconnected'
+        self.reconnect_at = None
 
-class BaseThread(Thread):
-    def __init__(self, name=None):
-        Thread.__init__(self, name=name)
-        self.terminating = False
-        self.wakeup = Condition()
+    def heartbeat(self, now):
+        if self.reconnect_at is None or self.reconnect_at > now: return
+        self.reconnect()
 
-    def terminate(self):
-        with self.wakeup:
-            self.terminating = True
-            self.wakeup.notify()
+    def close(self, allow_reconnect=True):
+        asyncore.dispatcher.close(self)
+        self.state = 'disconnected'
+        self.cleanup_connection()
+        if allow_reconnect: self.schedule_reconnect()
+
+    def writable(self):
+        return self.connecting
+
+    def schedule_reconnect(self):
+        self.reconnect_at = time.time() + self.reconnect_interval
+
+    def reconnect(self):
+        if self.state != 'disconnected':
+            self.close(False)
+
+        try:
+            self.prepare_connection()
+            self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.connect((self.host, self.port))
+        except socket.error as e:
+            log('Connection to {host}:{port} failed: {ex!s}', host=self.host, port=self.port, ex=e)
+            self.close()
+
+    def handle_connect(self):
+        self.state = 'connected'
+        self.start_connection()
+
+    def handle_read(self):
+        pass
+
+    def handle_write(self):
+        pass
+
+    def prepare_connection(self):
+        pass
+
+    def start_connection(self):
+        pass
+
+    def cleanup_connection(self):
+        pass
+
+
+class BeastConnection(ReconnectingConnection):
+    def __init__(self, host, port):
+        ReconnectingConnection.__init__(self, host, port)
+        self.coordinator = None
+
+    def prepare_connection(self):
+        self.readbuf = bytearray()
+
+    def start_connection(self):
+        log('Beast input connected to {0}:{1}', self.host, self.port)
+        self.state = 'ready'
+        self.coordinator.input_connected()
+
+    def cleanup_connection(self):
+        self.readbuf = None
+        self.coordinator.input_disconnected()
+
+    def handle_read(self):
+        try:
+            moredata = bytearray(self.recv(16384))
+        except socket.error as e:
+            if e.errno == errno.EAGAIN:
+                return
+            raise
+
+        if not moredata:
+            self.close()
+
+        self.readbuf += moredata
+            
+        consumed,messages = _modes.packetize_beast_input(self.readbuf)
+        if consumed: self.readbuf = self.readbuf[consumed:]        
+        if len(self.readbuf) > 512:
+            raise ParseError('parser broken - buffer not being consumed')
+
+        if messages:
+            self.coordinator.input_received_messages(messages)
+
+class ServerConnection(ReconnectingConnection):
+    reconnect_interval = 30.0
+    heartbeat_interval = 120.0
+
+    def __init__(self, host, port, handshake_data, offer_zlib):
+        ReconnectingConnection.__init__(self, host, port)
+        self.handshake_data = handshake_data
+        self.offer_zlib = offer_zlib
+        self.coordinator = None
+        self.supports_reporting = False
+
+    def prepare_connection(self):
+        self.readbuf = ''
+        self.writebuf = ''
+        self.linebuf = []
+        self.fill_writebuf = None
+        self.handle_server_line = None
+        self.server_heartbeat_at = None
+
+    def cleanup_connection(self):
+        self.readbuf = None
+        self.writebuf = None
+        self.linebuf = []
+        self.fill_writebuf = None
+        self.handle_server_line = None
+        self.server_heartbeat_at = None
+
+    def readable(self):
+        return self.handle_server_line is not None
+
+    def writable(self):
+        return self.connecting or self.writebuf or (self.fill_writebuf and self.linebuf)
+
+    def handle_write(self):
+        if self.fill_writebuf:
+            self.fill_writebuf()
+
+        if self.writebuf:
+            sent = self.send(self.writebuf)
+            self.writebuf = self.writebuf[sent:]
+            if len(self.writebuf) > 65536:
+                log('Server write buffer overflow, disconnecting')
+                self.close()
+
+    def fill_uncompressed(self):
+        if not self.linebuf: return
+        for line in self.linebuf:
+            self.writebuf += line + '\n'
+        self.linebuf = []
+
+    def fill_zlib(self):
+        if not self.linebuf: return
+
+        data = ''
+        pending = False
+        for line in self.linebuf:
+            data += self.compressor.compress(line + '\n')
+            pending = True
+
+            if len(data) >= 32768:
+                data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
+                assert len(data) < 65536
+                assert data[-4:] == '\x00\x00\xff\xff'
+                data = struct.pack('!H', len(data)-4) + data[:-4]
+                self.writebuf += data
+                data = ''
+                pending = False
+
+        if pending:
+            data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
+            assert len(data) < 65536
+            assert data[-4:] == '\x00\x00\xff\xff'
+            data = struct.pack('!H', len(data)-4) + data[:-4]
+            self.writebuf += data    
+
+        self.linebuf = []
+
+    def send_json(self, o):
+        log('Send: {0}', o)
+        self.linebuf.append(json.dumps(o, separators=(',',':')))
+
+    def send_mlat(self, message):
+        self.linebuf.append('{{"find":{{"t":{0},"m":"{1}"}}}}'.format(message.timestamp, str(message)))
+
+    def send_mlat_and_alt(self, message, altitude):
+        self.linebuf.append('{{"find":{{"t":{0},"m":"{1}","a":{2}}}}}'.format(message.timestamp, str(message), altitude))
+
+    def send_sync(self, em, om):
+        self.linebuf.append('{{"ref":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(em.timestamp, str(em), om.timestamp, str(om)))
+
+    def start_connection(self):
+        log('Connected to server at {0}:{1}, handshaking', self.host, self.port)
+        self.state = 'handshaking'
+
+        compress_methods = ['none']
+        if self.offer_zlib:
+            compress_methods.append('zlib')
+
+        handshake_msg = { 'version' : 2, 'compress' : compress_methods }
+        handshake_msg.update(self.handshake_data)
+        self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
+        self.handle_server_line = self.handle_handshake_response
+
+        self.server_heartbeat_at = time.time() + self.heartbeat_interval
+
+    def heartbeat(self, now):
+        ReconnectingConnection.heartbeat(self,now)
+
+        if self.server_heartbeat_at is not None and self.server_heartbeat_at < now:
+            self.server_heartbeat_at = now + self.heartbeat_interval
+            self.send_json({'heartbeat': round(now,1)})
+
+    def handle_read(self):
+        try:
+            moredata = self.recv(16384)
+        except socket.error as e:
+            if e.errno == errno.EAGAIN:
+                return
+            raise
+
+        if not moredata:
+            self.close()
+            self.schedule_reconnect()
+
+        self.readbuf += moredata
+        lines = self.readbuf.split('\n')
+        self.readbuf = lines[-1]
+        for line in lines[:-1]:
+            self.handle_server_line(json.loads(line))
     
-    def log(self, msg, *args, **kwargs):
-        s = msg.format(*args, **kwargs)
-        global_log(self.name + ': ' + s)
+    def handle_handshake_response(self, response):
+        if 'reconnect_in' in response:
+            self.reconnect_interval = response['reconnect_in']
 
-    def log_exc(self, msg, *args, **kwargs):
-        s = msg.format(*args, **kwargs)
-        global_log_exc(self.name + ': ' + s)
+        if 'deny' in response:
+            log('Server explicitly rejected our connection, saying:')
+            for reason in response['deny']:
+                log('  {0}', reason)
+            raise IOError('Server rejected our connection attempt')
+
+        if 'motd' in response:
+            log('Server says: {0}', response['motd'])
+
+        if 'compress' in response:
+            if response['compress'] == 'none':
+                self.fill_writebuf = self.fill_uncompressed
+            elif response['compress'] == 'zlib' and self.offer_zlib:
+                self.compressor = zlib.compressobj(1)
+                self.fill_writebuf = self.fill_zlib
+            else:
+                raise IOError('Server response asked for a compression method {0}, which we do not support'.format(response['compress']))
+        else:
+            self.fill_writebuf = self.fill_uncompressed
+
+        if 'reporting' in response:
+            self.supports_reporting = response['reporting']
+        else:
+            self.supports_reporting = False
+
+        self.state = 'ready'
+        self.handle_server_line = self.handle_connected_request
+        self.coordinator.server_connected()
+
+    def handle_connected_request(self, request):
+        if 'start_sending' in request:
+            self.coordinator.start_sending(request['start_sending'])
+        elif 'stop_sending' in request:
+            self.coordinator.stop_sending(request['stop_sending'])
+        else:
+            log('ignoring request from server', request)
 
 class Aircraft:
     def __init__(self, icao):
@@ -64,215 +303,148 @@ class Aircraft:
         self.last_altitude_timestamp = 0
         self.altitude = None
         self.even_message = None
-        self.even_timestamp = None
         self.odd_message = None
-        self.odd_timestamp = None
         self.reported = False
-        self.requested = False
+        self.requested = True
 
-class BeastReaderThread(BaseThread):
-    def __init__(self, host, port, random_drop):
-        BaseThread.__init__(self, name="beast-in")
-        self.consumer = None
-        self.host = host
-        self.port = port
+class Coordinator:
+    report_interval = 15.0
+    expiry_interval = 60.0
+
+    def __init__(self, beast, server, random_drop):
+        self.beast = beast
+        self.server = server
+        self.random_drop_cutoff = int(255 * random_drop)
+
         self.aircraft = {}
-        self.aircraft_lock = RLock()
-        self.next_expiry_time = time.time()
-        self.last_ref_timestamp = 0
-        self.last_rcv_timestamp = 0
-        self.random_drop = int(256 * random_drop / 100)
-
-        self.newly_seen = set()
         self.requested_traffic = set()
-        
-        self.reset_stats()
-
-        self.handlers = {
-            0: self.process_df_misc_alt,
-            4: self.process_df_misc_alt,
-            5: self.process_df_misc_noalt,
-            16: self.process_df_misc_alt,
-            20: self.process_df_misc_alt,
-            21: self.process_df_misc_noalt,
-            11: self.process_df11,
-            17: self.process_df17
+        self.df_handlers = {
+            0: self.received_df_misc_alt,
+            4: self.received_df_misc_alt,
+            5: self.received_df_misc_noalt,
+            16: self.received_df_misc_alt,
+            20: self.received_df_misc_alt,
+            21: self.received_df_misc_noalt,
+            11: self.received_df11,
+            17: self.received_df17
         }
+        self.last_rcv_timestamp = None
 
-    def reset_stats(self):
-        self.st_msg_in = 0
-        self.st_msg_random_drop = 0
-        self.st_msg_discard_timestamp = 0
-        self.st_msg_dfmisc = 0
-        self.st_msg_dfmisc_candidates = 0
-        self.st_msg_df11 = 0
-        self.st_msg_df11_candidates = 0
-        self.st_msg_df17 = 0
-        self.st_msg_df17_candidates = 0
+        self.next_report = None
+        self.next_expiry = None
 
-    def set_consumer(self, consumer):
-        with self.wakeup:
-            self.consumer = consumer
-            self.last_ref_timestamp = 0
-            self.wakeup.notify()
+        beast.coordinator = self
+        server.coordinator = self
 
     def run(self):
-        self.log("Starting")
-
-        while True:
-            with self.wakeup:
-                while not self.consumer and not self.terminating:
-                    self.wakeup.wait()
-                if self.terminating: break
-
-            try:
-                self.last_rcv_timestamp = 0
-
-                self.log('Connecting to {0}:{1}', self.host, self.port)
-                with closing(socket.create_connection((self.host, self.port), 30.0)) as s:
-                    self.log('Connected')
-                    self.send_message({ 'input_connected' : 'yay!' })
-                    self.read_data(s)
-
-                if not self.consumer:
-                    self.log('Output channel disconnected; disconnecting from input')
-                else:
-                    self.log('Disconnected: remote side closed the connection')
-                    self.send_message({ 'input_disconnect' : 'close' })
-
-            except IOError as e:
-                self.send_message({ 'input_disconnect' : 'ioerror' })
-                self.log('Disconnected: socket error: ' + str(e))
-
-            except ParseError as e:
-                self.send_message({ 'input_disconnect' : 'parseerror' })
-                self.log_exc('Disconnected: parse error')
-
-            except:
-                self.send_message({ 'input_disconnect' : 'othererror' })
-                self.log_exc('Disconnected: unexpected error')
-
-            if self.consumer:
-                # only delay if we didn't voluntarily disconnect
-                # due to losing our consumer
-                now = time.time()
-                reconnect = now + RECONNECT_INTERVAL
-                with self.wakeup:
-                    while not self.terminating and now < reconnect:
-                        self.wakeup.wait(reconnect - now)
-                        now = time.time()
-
-        self.log('Thread terminating')
-
-    def read_data(self, s):
-        start = time.time()
-        next_stats = start + STATS_INTERVAL
-        next_expiry = start + 60.0
-        next_seen_update = start + 5.0
-        self.reset_stats()
-
         try:
-            s.settimeout(1.0) # don't block for too long
-            buf = bytearray()
-            while self.consumer and not self.terminating:
-                try:
-                    moredata = bytearray(s.recv(16384))
-                except socket.timeout as e:
-                    continue
+            self.server.reconnect()
 
-                if not moredata:
-                    return # EOF
-
-                buf += moredata
-            
-                consumed = self.parse_messages(buf)
-                if consumed:
-                    buf = buf[consumed:]
-
-                if len(buf) > 512:
-                    raise ParseError('parser broken - buffer not being consumed')
-
+            next_heartbeat = time.time() + 1.0
+            while True:
+                asyncore.loop(timeout=1.0, count=5)
                 now = time.time()
-                if now > next_stats:
-                    next_stats = now + STATS_INTERVAL
-                    self.show_stats(start, now)
-                if now > next_expiry:
-                    next_expiry = now + 60
-                    self.expire_data_now()
-                if now > next_seen_update:
-                    next_seen_update = now + 5.0
-                    self.send_seen_updates()
+                if now >= next_heartbeat:
+                    next_heartbeat = now + 1.0
+                    self.heartbeat(now)
 
         finally:
-            self.show_stats(start, time.time())
+            if self.beast.socket: self.beast.close(False)
+            if self.server.socket: self.server.close(False)
 
-    def parse_messages(self, buf):
-        consumed, messages = _modes.packetize_beast_input(buf)
+    def input_connected(self):
+        self.server.send_json({'input_connected' : 'OK'})
+
+    def input_disconnected(self):
+        self.server.send_json({'input_disconnected' : 'no longer connected'})
+
+    def server_connected(self):
+        self.requested_traffic = set()
+        self.newly_seen = set()
+        self.aircraft = {}
+        self.next_report = time.time() + self.report_interval
+        self.next_expiry = time.time() + self.expiry_interval
+        if self.beast.state != 'ready':
+            self.beast.reconnect()
+
+    def server_disconnected(self):
+        self.beast.close(False)
+        self.next_report = None
+        self.next_expiry = None
+
+    def input_received_messages(self, messages):
         for message in messages:
-            self.process_message(message)
-        return consumed
+            if self.random_drop_cutoff and message[-1] < self.random_drop_cutoff: # last byte, part of the checksum, should be fairly randomly distributed
+                continue;
 
-    def expire_data_now(self):
-        total = len(self.aircraft)
+            if message.timestamp < self.last_rcv_timestamp:
+                return
+
+            self.last_rcv_timestamp = message.timestamp
+
+            if not message.valid:
+                return
+
+            handler = self.df_handlers.get(message.df)
+            if handler: handler(message)
+
+    def start_sending(self, icao_list):
+        for icao in icao_list:
+            ac = self.aircraft.get(icao)
+            if ac: ac.requested = True
+        self.requested_traffic.update(icao_list)
+
+    def stop_sending(self, icao_list):
+        for icao in icao_list:
+            ac = self.aircraft.get(icao)
+            if ac: ac.requested = False
+        self.requested_traffic.difference_update(icao_list)
+
+    def heartbeat(self, now):
+        self.beast.heartbeat(now)
+        self.server.heartbeat(now)
+
+        if self.next_report and now >= self.next_report:
+            self.next_report = now + self.report_interval
+            self.send_aircraft_report()
+
+        if self.next_expiry and now >= self.next_expiry:
+            self.next_expiry = now + self.expiry_interval
+            self.expire()
+
+    def report_aircraft(self, ac):
+        ac.reported = True
+        if not self.server.supports_reporting:
+            ac.requested = True
+        self.newly_seen.add(ac.icao)
+
+    def send_aircraft_report(self):
+        if self.newly_seen:
+            self.server.send_json({'ac_seen': ['{0:06x}'.format(icao) for icao in self.newly_seen]})
+            self.newly_seen.clear()
+            
+    def expire(self):
+        reported_count = requested_count = discarded_count = 0
         discarded = []
-        with self.aircraft_lock:
-            for ac in self.aircraft.values():
-                if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
-                    if ac.reported:
-                        discarded.append(ac.icao)
-                    del self.aircraft[ac.icao]
+        for ac in self.aircraft.values():
+            if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
+                discarded_count += 1
+                if ac.reported:
+                    discarded.append(ac.icao)
+                del self.aircraft[ac.icao]
+            else:
+                if ac.reported:
+                    reported_count += 1
+                if ac.requested:
+                    requested_count += 1
 
         if discarded:
-            self.send_message({'ac_lost':['{0:06x}'.format(icao) for icao in discarded]})
+            self.server.send_json({'ac_lost':['{0:06x}'.format(icao) for icao in discarded]})
                 
-        expired = total - len(self.aircraft)
-        self.log('Expired {0}/{1} aircraft', expired, total)
+        log('Expired {0} aircraft, {1} remaining', discarded_count, len(self.aircraft))
+        log('Sending traffic for {0}/{1} aircraft', requested_count, reported_count)
 
-    def send_seen_updates(self):
-        if self.newly_seen:
-            self.send_message({'ac_seen': ['{0:06x}'.format(ac.icao) for ac in self.newly_seen]})
-            self.newly_seen.clear()
-
-    def report_ac(self, ac):
-        ac.reported = True
-        self.newly_seen.add(ac)
-
-    def start_sending(self, aclist):
-        with self.aircraft_lock:
-            for icao in aclist:
-                self.requested_traffic.add(icao)
-                ac = self.aircraft.get(icao)
-                if ac: ac.requested = True
-
-    def stop_sending(self, aclist):
-        with self.aircraft_lock:
-            for icao in aclist:
-                self.requested_traffic.discard(icao)
-                ac = self.aircraft.get(icao)
-                if ac: ac.requested = False
-
-    def process_message(self, message):
-        self.st_msg_in += 1
-
-        if self.random_drop and message[-1] < self.random_drop: # last byte, part of the checksum, should be fairly randomly distributed
-            self.st_msg_random_drop += 1
-            return;
-
-        if message.timestamp < self.last_rcv_timestamp:
-            self.st_msg_discard_timestamp += 1
-            return
-
-        self.last_rcv_timestamp = message.timestamp
-
-        if not message.valid:
-            return
-
-        handler = self.handlers.get(message.df)
-        if handler: handler(message)
-
-    def process_df_misc_noalt(self, message):
-        self.st_msg_dfmisc += 1
-
+    def received_df_misc_noalt(self, message):
         ac = self.aircraft.get(message.address)
         if not ac: return False  # not a known ICAO
 
@@ -281,22 +453,16 @@ class BeastReaderThread(BaseThread):
 
         if ac.messages < 10: return   # wait for more messages
         if ac.reported and not ac.requested: return
-        if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
-        if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
-        if message.timestamp - ac.last_altitude_timestamp > TS(15): return     # too long since altitude reported
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # too long since altitude reported
         if not ac.reported:
-            self.report_ac(ac)
+            self.report_aircraft(ac)
             return
 
         # Candidate for MLAT
-        self.st_msg_dfmisc_candidates += 1
-        now = time.time()
-        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}","a":{3}}}}}'.format(now, message.timestamp, str(message), ac.altitude)
-        self.send_message_raw(now,line)
+        self.server.send_mlat_and_alt(message, ac.altitude)
 
-    def process_df_misc_alt(self, message):
-        self.st_msg_dfmisc += 1
-
+    def received_df_misc_alt(self, message):
         if not message.altitude: return
 
         ac = self.aircraft.get(message.address)
@@ -309,29 +475,22 @@ class BeastReaderThread(BaseThread):
 
         if ac.messages < 10: return   # wait for more messages
         if ac.reported and not ac.requested: return
-        if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
-        if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
         if not ac.reported:
-            self.report_ac(ac)
+            self.report_aircraft(ac)
             return
 
         # Candidate for MLAT
-        self.st_msg_dfmisc_candidates += 1
-        now = time.time()
-        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}"}}}}'.format(now, message.timestamp, str(message))
-        self.send_message_raw(now,line)
+        self.server.send_mlat(message)
 
-    def process_df11(self, message):
-        self.st_msg_df11 += 1
-
+    def received_df11(self, message):
         ac = self.aircraft.get(message.address)
         if not ac:
-            with self.aircraft_lock:
-                ac = Aircraft(message.address)
-                ac.requested = (message.address in self.requested_traffic)
-                ac.messages += 1
-                ac.last_message_timestamp = message.timestamp
-                self.aircraft[message.address] = ac
+            ac = Aircraft(message.address)
+            ac.requested = (message.address in self.requested_traffic)
+            ac.messages += 1
+            ac.last_message_timestamp = message.timestamp
+            self.aircraft[message.address] = ac
             return # will need some more messages..
 
         ac.messages += 1
@@ -339,31 +498,23 @@ class BeastReaderThread(BaseThread):
 
         if ac.messages < 10: return   # wait for more messages
         if ac.reported and not ac.requested: return
-        if ac.altitude is None: return    # need an altitude
-        if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
-        if (message.timestamp - self.last_ref_timestamp) > TS(15): return      # too long since we sent a clock reference, can't mlat
-        if (message.timestamp - ac.last_altitude_timestamp) > TS(15): return   # no recent altitude available
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # no recent altitude available
         if not ac.reported:
-            self.report_ac(ac)
+            self.report_aircraft(ac)
             return
 
         # Candidate for MLAT
-        self.st_msg_df11_candidates += 1
-        now = time.time()
-        line = '{{"find":{{"@":{0},"t":{1},"m":"{2}","a":{3}}}}}'.format(now, message.timestamp, str(message), ac.altitude)
-        self.send_message_raw(now,line)
+        self.server.send_mlat_and_alt(message, ac.altitude)
 
-    def process_df17(self, message):
-        self.st_msg_df17 += 1
-
+    def received_df17(self, message):
         ac = self.aircraft.get(message.address)
         if not ac:
-            with self.aircraft_lock:
-                ac = Aircraft(message.address)
-                ac.requested = (message.address in self.requested_traffic)
-                ac.messages += 1
-                ac.last_message_timestamp = ac.last_position_timestamp = message.timestamp
-                self.aircraft[message.address] = ac
+            ac = Aircraft(message.address)
+            ac.requested = (message.address in self.requested_traffic)
+            ac.messages += 1
+            ac.last_message_timestamp = ac.last_position_timestamp = message.timestamp
+            self.aircraft[message.address] = ac
             return # wait for more messages
 
         ac.messages += 1
@@ -371,348 +522,26 @@ class BeastReaderThread(BaseThread):
 
         if ac.messages < 10: return
         if ac.reported and not ac.requested: return
-
-        if not ac.reported:
-            self.report_ac(ac)
-            return
-
         if message.altitude is None: return    # need an altitude
 
         if message.even_cpr:
             ac.last_position_timestamp = message.timestamp
-            ac.even_timestamp = message.timestamp
             ac.even_message = message
         elif message.odd_cpr:
             ac.last_position_timestamp = message.timestamp
-            ac.odd_timestamp = message.timestamp
             ac.odd_message = message
         else:
             return # not a position ES message
 
         if not ac.even_message or not ac.odd_message: return
-        if abs(ac.even_timestamp - ac.odd_timestamp) > TS(5): return
+        if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > TS(5): return
 
         # this is a useful reference message pair
-        if not ac.reported: self.newly_seen.add(ac)
-        self.last_ref_timestamp = message.timestamp
-        self.st_msg_df17_candidates += 1
-        now = time.time()
-        line = '{{"ref":{{"@":{0},"et":{1},"em":"{2}","ot":{3},"om":"{4}"}}}}'.format(now, ac.even_timestamp, str(ac.even_message), ac.odd_timestamp, str(ac.odd_message))
-        self.send_message_raw(now,line)
+        if not ac.reported:
+            self.report_aircraft(ac)
+            return
 
-    def send_message(self, msg):
-        c = self.consumer # copy in case of concurrent modification
-        if not c: return        
-        c.send_message(msg)
-
-    def send_message_raw(self, t, msg):
-        c = self.consumer # copy in case of concurrent modification
-        if not c: return        
-        c.send_message_raw(t, msg)
-
-    def show_stats(self, start, end):
-        elapsed = (end - start)
-        with global_log_lock: # don't interleave
-            self.log('Elapsed:            {0:.0f} seconds', elapsed)
-            self.log('Messages received:  {0} ({1:.1f}/s)', self.st_msg_in, self.st_msg_in / elapsed)
-            self.log(' Random drop:       {0}', self.st_msg_random_drop)
-            self.log(' Timestamp discard: {0}', self.st_msg_discard_timestamp)
-            self.log('DF17:               {0}', self.st_msg_df17)
-            self.log(' Ref candidates:    {0} ({1:.1f}%)', self.st_msg_df17_candidates, 100.0 * self.st_msg_df17_candidates / self.st_msg_df17 if self.st_msg_df17 else 0)
-            self.log('DF11:               {0}', self.st_msg_df11)
-            self.log(' Mlat candidates:   {0} ({1:.1f}%)', self.st_msg_df11_candidates, 100.0 * self.st_msg_df11_candidates / self.st_msg_df11 if self.st_msg_df11 else 0)
-            self.log('Other:              {0}', self.st_msg_dfmisc)
-            self.log(' Mlat candidates:   {0} ({1:.1f}%)', self.st_msg_dfmisc_candidates, 100.0 * self.st_msg_dfmisc_candidates / self.st_msg_dfmisc if self.st_msg_dfmisc else 0)
-
-        self.send_message({ 'input_stats' :
-                            {
-                                'elapsed'               : round(elapsed,1),
-                                'msg_in'                : self.st_msg_in,
-                                'msg_random_drop'       : self.st_msg_random_drop,
-                                'msg_discard_timestamp' : self.st_msg_discard_timestamp,
-                                'msg_df11'              : self.st_msg_df11,
-                                'msg_df11_candidates'   : self.st_msg_df11_candidates,
-                                'msg_df17'              : self.st_msg_df17,
-                                'msg_df17_candidates'   : self.st_msg_df17_candidates,
-                                'msg_dfmisc'            : self.st_msg_dfmisc,
-                                'msg_dfmisc_candidates' : self.st_msg_dfmisc_candidates
-                            }
-                        })
-
-class ServerReadThread(BaseThread):
-    def __init__(self, clientsocket, input_side):
-        BaseThread.__init__(self, name="server-read")
-        self.clientsocket = clientsocket
-        self.input_side = input_side
-
-    def run(self):
-        try:
-            while True:
-                with self.wakeup:
-                    now = time.time()
-                    buf = ''
-                    while not self.terminating:
-                        try:
-                            moredata = self.clientsocket.read(4096)
-                        except socket.timeout as e:
-                            continue
-
-                        if not moredata:
-                            self.log("EOF from server")
-                            return
-
-                        buf = buf + moredata
-                        lines = buf.split('\n')
-                        for line in lines[:-1]:
-                            self.process_server_line(line)
-                        buf = lines[-1]
-                        if len(buf) > 3072:
-                            raise IOError('Residual data from server too long')
-
-        except IOError as e:
-            self.log('Disconnected: socket error: ' + str(e))
-            
-        except:
-            self.log_exc('Disconnected: unexpected error')
-
-        finally:
-            self.clientsocket.close() # should wake up the writer side too
-
-    def process_server_line(self, line):
-        req = json.loads(line)        
-        if req['start_sending']:
-            self.input_side.start_sending(req['start_sending'])
-        elif req['stop_sending']:
-            self.input_side.stop_sending(req['stop_sending'])
-        elif req['disconnect']:
-            self.log('Server disconnected us: {0}', req['disconnected'])
-        else:
-            self.log('Unhandled server message: {0}', req)
-
-
-class ServerCommsThread(BaseThread):
-    def __init__(self, host, port, handshake_data, input_side, offer_zlib):
-        BaseThread.__init__(self, name="server-comms")
-        self.host = host
-        self.port = port
-        self.handshake_data = handshake_data
-        self.input_side = input_side
-        self.offer_zlib = offer_zlib
-        self.write = None
-        self.connected = False
-        self.queue = []
-        self.reset_stats()
-        self.reconnect_interval = RECONNECT_INTERVAL
-
-    def reset_stats(self):
-        self.st_msg_produced = 0
-        self.st_msg_dropped = 0
-        self.st_msg_sent = 0
-        self.st_data_raw = 0
-        self.st_data_sent = 0
-
-    def send_message_raw(self, t, line):
-        with self.wakeup:
-            self.st_msg_produced += 1
-            if not self.connected:
-                self.st_msg_dropped += 1
-                return
-            self.queue.append((t,line))
-
-    def send_message(self, msg):
-        t = time.time()
-        msg['@'] = round(t,1)
-        self.send_message_raw(t,json.dumps(msg, separators=(',',':')))
-
-    def run(self):
-        self.log("Starting")
-
-        while not self.terminating:
-            try:
-                self.log('Connecting to {0}:{1}', self.host, self.port)
-                read_thread = None
-                with closing(socket.create_connection((self.host, self.port), 30.0)) as s:
-                    self.log('Connected, handshaking')
-                    self.handshake(s)
-                    self.connected = True
-                    self.queue = []
-                    self.input_side.set_consumer(self)
-
-                    s.settimeout(15.0)
-                    read_thread = ServerReadThread(s, self.input_side)
-                    read_thread.start()
-                    self.write_messages(s)
-
-                self.log('Disconnected: socket closed')
-
-            except IOError as e:
-                self.log('Disconnected: socket error: ' + str(e))
-
-            except:
-                self.log_exc('Disconnected: unexpected error')
-
-            finally:
-                if read_thread:
-                    read_thread.terminate()
-
-                self.connected = False
-                self.input_side.set_consumer(None)
-
-            now = time.time()
-            reconnect = now + self.reconnect_interval
-            with self.wakeup:
-                while not self.terminating and now < reconnect:
-                    self.log('Reconnecting in {0:.0f} seconds.', (reconnect - now))
-                    self.wakeup.wait(reconnect - now)
-                    now = time.time()
-
-        self.log('Thread terminating')
-
-    def write_uncompressed(self, s, lines):
-        if not lines: return
-
-        for line in lines:
-            self.st_data_sent += len(line)+1
-            s.send(line + '\n')
-
-    def write_zlib(self, s, lines):
-        if not lines: return
-
-        data = ''
-        pending = False
-        for line in lines:
-            data += self.compressor.compress(line + '\n')
-            pending = True
-
-            if len(data) >= 32768:
-                data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
-                assert len(data) < 65536
-                assert data[-4:] == '\x00\x00\xff\xff'
-                data = struct.pack('!H', len(data)-4) + data[:-4]
-                s.send(data)
-                self.st_data_sent += len(data)
-                data = ''
-                pending = False
-
-        if pending:
-            data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
-            assert len(data) < 65536
-            assert data[-4:] == '\x00\x00\xff\xff'
-            data = struct.pack('!H', len(data)-4) + data[:-4]
-            s.send(data)
-            self.st_data_sent += len(data)
-
-    def handshake(self, s):
-        compress_methods = ['none']
-        if self.offer_zlib:
-            compress_methods.append('zlib')
-
-        handshake_msg = {
-            '@' : round(time.time(),1),
-            'version' : 3,
-            'compress' : compress_methods,
-        }
-
-        handshake_msg.update(self.handshake_data)
-
-        s.send(json.dumps(handshake_msg) + '\n')
-
-        # Yeah, this is lazy
-        buf = ''
-        while len(buf) < 4096:
-            ch = s.recv(1)
-            if not ch:
-                raise IOError('Unexpected EOF in server response')
-            if ch == '\n':
-                break
-            buf += ch
-
-        response = json.loads(buf)
-
-        if 'reconnect_in' in response:
-            self.reconnect_interval = float(response['reconnect_in'])
-        else:
-            self.reconnect_interval = RECONNECT_INTERVAL
-
-        if 'deny' in response:
-            self.log('Server explicitly rejected our connection, saying:')
-            for reason in response['deny']:
-                self.log('  {0}', reason)
-            raise IOError('Server rejected our connection attempt')
-
-        if 'motd' in response:
-            self.log('Server says: {0}', response['motd'])
-
-        if 'compress' in response:
-            if response['compress'] == 'none':
-                self.write = self.write_uncompressed
-            elif response['compress'] == 'zlib' and self.offer_zlib:
-                self.compressor = zlib.compressobj(1)
-                self.write = self.write_zlib                    
-            else:
-                raise IOError('Server response asked for a compression method {0}, which we do not support'.format(response['compress']))
-        else:
-            self.write = self.write_uncompressed
-
-    def write_messages(self, s):
-        start = time.time()
-        next_stats = start + STATS_INTERVAL
-        next_write = start + 0.5
-        self.reset_stats()
-
-        try:
-            while True:
-                with self.wakeup:
-                    now = time.time()
-                    while not self.terminating and now < next_stats and now < next_write:
-                        self.wakeup.wait(min(next_stats,next_write) - now)
-                        now = time.time()
-                
-                    if self.terminating: return
-
-                    if now >= next_stats:
-                        self.show_stats(start, now)
-                        next_stats = now + STATS_INTERVAL
-
-                    if now >= next_write:
-                        next_write = now + 0.5
-
-                        msgs = self.queue
-                        self.queue = []
-                        to_send = []
-                        for t,line in msgs:
-                            if (now - t) < 1.0:
-                                self.st_msg_sent += 1
-                                self.st_data_raw += len(line)
-                                to_send.append(line)
-                            else:
-                                self.st_msg_dropped += 1
-                        
-                        self.write(s, to_send)
-        finally:
-            self.show_stats(start, time.time())
-
-    def show_stats(self, start, end):
-        elapsed = (end - start)
-        with global_log_lock: # don't interleave
-            self.log('Elapsed:            {0:.0f} seconds', elapsed)
-            self.log('Messages produced:  {0}', self.st_msg_produced)
-            self.log('Messages dropped:   {0}', self.st_msg_dropped)
-            self.log('Messages sent:      {0} ({1:.1f}/s)', self.st_msg_sent, self.st_msg_sent / elapsed)
-            self.log('Raw message size:   {0:.1f}kB', self.st_data_raw/1000.0)
-            self.log('Sent data:          {0:.1f}kB ({1:.1f}kB/s) ({2:.1f}%)', self.st_data_sent/1000.0, self.st_data_sent / elapsed / 1000.0, 100.0 * self.st_data_sent / self.st_data_raw if self.st_data_raw else 0)
-
-        if self.connected:
-            self.send_message({ 'output_stats' :
-                                {
-                                    'elapsed'      : round(elapsed,1),
-                                    'msg_produced' : self.st_msg_produced,
-                                    'msg_dropped'  : self.st_msg_dropped,
-                                    'msg_sent'     : self.st_msg_sent,
-                                    'data_raw'     : self.st_data_raw,
-                                    'data_sent'    : self.st_data_sent
-                                }
-                            })
+        self.server.send_sync(ac.even_message, ac.odd_message)
 
 def main():
     def latitude(s):
@@ -755,7 +584,7 @@ def main():
         p = int(s)
         if p < 0 or p > 100:
             raise argparse.ArgumentTypeError('Percentage %s must be in the range 0 to 100' % s)
-        return p
+        return p / 100.0
 
     parser = argparse.ArgumentParser(description="Client for multilateration.")
     parser.add_argument('--lat',
@@ -799,23 +628,17 @@ def main():
 
     args = parser.parse_args()
 
-    reader = BeastReaderThread(host=args.input_host, port=args.input_port, random_drop=args.random_drop)
-    writer = ServerCommsThread(host=args.output_host, port=args.output_port,
-                               handshake_data={'lat':args.lat, 'lon':args.lon, 'alt':args.alt, 'user':args.user,'random_drop':args.random_drop},
-                               input_side=reader, offer_zlib=args.compress)
+    beast = BeastConnection(host=args.input_host, port=args.input_port)
+    server = ServerConnection(host=args.output_host, port=args.output_port,
+                              handshake_data={'lat':args.lat,
+                                              'lon':args.lon,
+                                              'alt':args.alt,
+                                              'user':args.user,
+                                              'random_drop':args.random_drop},
+                              offer_zlib=args.compress)
 
-    reader.start()
-    writer.start()
-
-    try:
-        # wait for SIGINT
-        while True:
-            time.sleep(10.0)
-    finally:
-        reader.terminate()
-        writer.terminate()
-        reader.join()
-        writer.join()
+    coordinator = Coordinator(beast = beast, server = server, random_drop=args.random_drop)
+    coordinator.run()
 
 if __name__ == '__main__':
     main()
