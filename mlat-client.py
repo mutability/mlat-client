@@ -310,8 +310,21 @@ class ServerConnection(ReconnectingConnection):
             self.coordinator.stop_sending([int(x,16) for x in request['stop_sending']])
         elif 'heartbeat' in request:
             pass
+        elif 'result' in request:
+            result = request['result']
+            self.coordinator.received_mlat_result(addr=result['addr'],
+                                                  lat=result['lat'],
+                                                  lon=result['lon'],
+                                                  alt=result['alt'],
+                                                  callsign=result['callsign'],
+                                                  squawk=result['squawk'],
+                                                  hdop=result['hdop'],
+                                                  vdop=result['vdop'],
+                                                  tdop=result['tdop'],
+                                                  gdop=result['gdop'],
+                                                  nstations=result['nstations'])
         else:
-            log('ignoring request from server', request)
+            log('ignoring request from server: {0}', request)
 
 class Aircraft:
     def __init__(self, icao):
@@ -570,6 +583,10 @@ class Coordinator:
             return
 
         self.server.send_sync(ac.even_message, ac.odd_message)
+
+    def received_mlat_result(self, addr, lat, lon, alt, callsign, squawk, hdop, vdop, tdop, gdop, nstations):
+        # todo: local SBS output, etc
+        pass
 
 def main():
     def latitude(s):
