@@ -39,26 +39,42 @@ class ReconnectingConnection(asyncore.dispatcher):
 
     def heartbeat(self, now):
         if self.reconnect_at is None or self.reconnect_at > now: return
+        if self.state == 'ready': return
+        self.reconnect_at = None
         self.reconnect()
 
-    def close(self, allow_reconnect=True):
-        asyncore.dispatcher.close(self)
-        self.state = 'disconnected'
-        self.cleanup_connection()
-        if allow_reconnect: self.schedule_reconnect()
+    def close(self, manual_close=False):
+        if self.state != 'disconnected':
+            if not manual_close:
+                log('Lost connection to {host}:{port}', host=self.host, port=self.port)
+                #traceback.print_stack()
+
+            asyncore.dispatcher.close(self)
+            self.state = 'disconnected'
+            self.lost_connection()
+            self.reset_connection()
+
+        if not manual_close: self.schedule_reconnect()
+
+    def disconnect(self, reason):
+        if self.state != 'disconnected':
+            log('Disconnecting from {host}:{port}: {reason}', host=self.host, port=self.port, reason=reason)
+            self.close(True)
 
     def writable(self):
         return self.connecting
 
     def schedule_reconnect(self):
-        self.reconnect_at = time.time() + self.reconnect_interval
+        if self.reconnect_at is None:
+            log('Reconnecting in {0} seconds', self.reconnect_interval)
+            self.reconnect_at = time.time() + self.reconnect_interval
 
     def reconnect(self):
         if self.state != 'disconnected':
-            self.close(False)
+            self.disconnect('About to reconnect')
 
         try:
-            self.prepare_connection()
+            self.reset_connection()
             self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
             self.connect((self.host, self.port))
         except socket.error as e:
@@ -66,6 +82,7 @@ class ReconnectingConnection(asyncore.dispatcher):
             self.close()
 
     def handle_connect(self):
+        log('Connected to {host}:{port}', host=self.host, port=self.port)
         self.state = 'connected'
         self.start_connection()
 
@@ -75,22 +92,21 @@ class ReconnectingConnection(asyncore.dispatcher):
     def handle_write(self):
         pass
 
-    def prepare_connection(self):
+    def reset_connection(self):
         pass
 
     def start_connection(self):
         pass
 
-    def cleanup_connection(self):
+    def lost_connection(self):
         pass
-
 
 class BeastConnection(ReconnectingConnection):
     def __init__(self, host, port):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
 
-    def prepare_connection(self):
+    def reset_connection(self):
         self.readbuf = bytearray()
 
     def start_connection(self):
@@ -98,8 +114,7 @@ class BeastConnection(ReconnectingConnection):
         self.state = 'ready'
         self.coordinator.input_connected()
 
-    def cleanup_connection(self):
-        self.readbuf = None
+    def lost_connection(self):
         self.coordinator.input_disconnected()
 
     def handle_read(self):
@@ -132,9 +147,9 @@ class ServerConnection(ReconnectingConnection):
         self.handshake_data = handshake_data
         self.offer_zlib = offer_zlib
         self.coordinator = None
-        self.supports_reporting = False
+        self.selective_traffic = False
 
-    def prepare_connection(self):
+    def reset_connection(self):
         self.readbuf = ''
         self.writebuf = ''
         self.linebuf = []
@@ -142,13 +157,8 @@ class ServerConnection(ReconnectingConnection):
         self.handle_server_line = None
         self.server_heartbeat_at = None
 
-    def cleanup_connection(self):
-        self.readbuf = None
-        self.writebuf = None
-        self.linebuf = []
-        self.fill_writebuf = None
-        self.handle_server_line = None
-        self.server_heartbeat_at = None
+    def lost_connection(self):
+        self.coordinator.server_disconnected()
 
     def readable(self):
         return self.handle_server_line is not None
@@ -164,8 +174,7 @@ class ServerConnection(ReconnectingConnection):
             sent = self.send(self.writebuf)
             self.writebuf = self.writebuf[sent:]
             if len(self.writebuf) > 65536:
-                log('Server write buffer overflow, disconnecting')
-                self.close()
+                self.disconnect('Server write buffer overflow (too much unsent data)')
 
     def fill_uncompressed(self):
         if not self.linebuf: return
@@ -201,17 +210,23 @@ class ServerConnection(ReconnectingConnection):
         self.linebuf = []
 
     def send_json(self, o):
-        log('Send: {0}', o)
+        #log('Send: {0}', o)
         self.linebuf.append(json.dumps(o, separators=(',',':')))
 
     def send_mlat(self, message):
-        self.linebuf.append('{{"find":{{"t":{0},"m":"{1}"}}}}'.format(message.timestamp, str(message)))
+        self.linebuf.append('{{"mlat":{{"t":{0},"m":"{1}"}}}}'.format(message.timestamp, str(message)))
 
     def send_mlat_and_alt(self, message, altitude):
-        self.linebuf.append('{{"find":{{"t":{0},"m":"{1}","a":{2}}}}}'.format(message.timestamp, str(message), altitude))
+        self.linebuf.append('{{"mlat":{{"t":{0},"m":"{1}","a":{2}}}}}'.format(message.timestamp, str(message), altitude))
 
     def send_sync(self, em, om):
-        self.linebuf.append('{{"ref":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(em.timestamp, str(em), om.timestamp, str(om)))
+        self.linebuf.append('{{"sync":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(em.timestamp, str(em), om.timestamp, str(om)))
+
+    def send_seen(self, aclist):
+        self.send_json({'seen': ['{0:06x}'.format(icao) for icao in aclist]})
+
+    def send_lost(self, aclist):
+        self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def start_connection(self):
         log('Connected to server at {0}:{1}, handshaking', self.host, self.port)
@@ -221,12 +236,10 @@ class ServerConnection(ReconnectingConnection):
         if self.offer_zlib:
             compress_methods.append('zlib')
 
-        handshake_msg = { 'version' : 2, 'compress' : compress_methods }
+        handshake_msg = { 'version' : 2, 'compress' : compress_methods, 'selective_traffic' : True, 'heartbeat' : True, 'return_results' : True }
         handshake_msg.update(self.handshake_data)
         self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
         self.handle_server_line = self.handle_handshake_response
-
-        self.server_heartbeat_at = time.time() + self.heartbeat_interval
 
     def heartbeat(self, now):
         ReconnectingConnection.heartbeat(self,now)
@@ -246,6 +259,7 @@ class ServerConnection(ReconnectingConnection):
         if not moredata:
             self.close()
             self.schedule_reconnect()
+            return
 
         self.readbuf += moredata
         lines = self.readbuf.split('\n')
@@ -266,31 +280,36 @@ class ServerConnection(ReconnectingConnection):
         if 'motd' in response:
             log('Server says: {0}', response['motd'])
 
-        if 'compress' in response:
-            if response['compress'] == 'none':
-                self.fill_writebuf = self.fill_uncompressed
-            elif response['compress'] == 'zlib' and self.offer_zlib:
-                self.compressor = zlib.compressobj(1)
-                self.fill_writebuf = self.fill_zlib
-            else:
-                raise IOError('Server response asked for a compression method {0}, which we do not support'.format(response['compress']))
-        else:
+        compress = response.get('compress', 'none')
+        if response['compress'] == 'none':
             self.fill_writebuf = self.fill_uncompressed
-
-        if 'reporting' in response:
-            self.supports_reporting = response['reporting']
+        elif response['compress'] == 'zlib' and self.offer_zlib:
+            self.compressor = zlib.compressobj(1)
+            self.fill_writebuf = self.fill_zlib
         else:
-            self.supports_reporting = False
+            raise IOError('Server response asked for a compression method {0}, which we do not support'.format(response['compress']))
+
+        self.selective_traffic = response.get('selective_traffic', False)
+        if response.get('heartbeat',False):
+            self.server_heartbeat_at = time.time() + self.heartbeat_interval
+
+        log('Handshake complete.')
+        log('  Compression:       {0}', compress)
+        log('  Selective traffic: {0}', self.selective_traffic and 'enabled' or 'disabled')
+        log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request
         self.coordinator.server_connected()
 
     def handle_connected_request(self, request):
+        #log('Receive: {0}', request)
         if 'start_sending' in request:
-            self.coordinator.start_sending(request['start_sending'])
+            self.coordinator.start_sending([int(x,16) for x in request['start_sending']])
         elif 'stop_sending' in request:
-            self.coordinator.stop_sending(request['stop_sending'])
+            self.coordinator.stop_sending([int(x,16) for x in request['stop_sending']])
+        elif 'heartbeat' in request:
+            pass
         else:
             log('ignoring request from server', request)
 
@@ -342,15 +361,21 @@ class Coordinator:
 
             next_heartbeat = time.time() + 1.0
             while True:
-                asyncore.loop(timeout=1.0, count=5)
+                # maybe there are no active sockets and
+                # we're just waiting on a timeout
+                if asyncore.socket_map:
+                    asyncore.loop(timeout=0.2, count=5)
+                else:
+                    time.sleep(1.0)
+
                 now = time.time()
                 if now >= next_heartbeat:
                     next_heartbeat = now + 1.0
                     self.heartbeat(now)
 
         finally:
-            if self.beast.socket: self.beast.close(False)
-            if self.server.socket: self.server.close(False)
+            if self.beast.socket: self.beast.disconnect('Server shutting down')
+            if self.server.socket: self.server.disconnect('Server shutting down')
 
     def input_connected(self):
         self.server.send_json({'input_connected' : 'OK'})
@@ -368,7 +393,7 @@ class Coordinator:
             self.beast.reconnect()
 
     def server_disconnected(self):
-        self.beast.close(False)
+        self.beast.disconnect('Lost connection to multilateration server, no need for input data')
         self.next_report = None
         self.next_expiry = None
 
@@ -389,12 +414,14 @@ class Coordinator:
             if handler: handler(message)
 
     def start_sending(self, icao_list):
+        log('Server requests traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = True
         self.requested_traffic.update(icao_list)
 
     def stop_sending(self, icao_list):
+        log('Server stops traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = False
@@ -414,13 +441,14 @@ class Coordinator:
 
     def report_aircraft(self, ac):
         ac.reported = True
-        if not self.server.supports_reporting:
+        if not self.server.selective_traffic:
             ac.requested = True
         self.newly_seen.add(ac.icao)
 
     def send_aircraft_report(self):
         if self.newly_seen:
-            self.server.send_json({'ac_seen': ['{0:06x}'.format(icao) for icao in self.newly_seen]})
+            log('Telling server about {0} new aircraft', len(self.newly_seen))
+            self.server.send_seen(self.newly_seen)
             self.newly_seen.clear()
             
     def expire(self):
@@ -439,10 +467,10 @@ class Coordinator:
                     requested_count += 1
 
         if discarded:
-            self.server.send_json({'ac_lost':['{0:06x}'.format(icao) for icao in discarded]})
-                
+            self.server.send_lost(discarded)
+
         log('Expired {0} aircraft, {1} remaining', discarded_count, len(self.aircraft))
-        log('Sending traffic for {0}/{1} aircraft', requested_count, reported_count)
+        log('Sending traffic for {0}/{1} aircraft, server requested {2} aircraft', requested_count, reported_count, len(self.requested_traffic))
 
     def received_df_misc_noalt(self, message):
         ac = self.aircraft.get(message.address)
