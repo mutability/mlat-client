@@ -67,6 +67,8 @@ class Aircraft:
         self.even_timestamp = None
         self.odd_message = None
         self.odd_timestamp = None
+        self.reported = False
+        self.requested = False
 
 class BeastReaderThread(BaseThread):
     def __init__(self, host, port, random_drop):
@@ -75,11 +77,15 @@ class BeastReaderThread(BaseThread):
         self.host = host
         self.port = port
         self.aircraft = {}
+        self.aircraft_lock = RLock()
         self.next_expiry_time = time.time()
         self.last_ref_timestamp = 0
         self.last_rcv_timestamp = 0
         self.random_drop = int(256 * random_drop / 100)
 
+        self.newly_seen = set()
+        self.requested_traffic = set()
+        
         self.reset_stats()
 
         self.handlers = {
@@ -162,6 +168,7 @@ class BeastReaderThread(BaseThread):
         start = time.time()
         next_stats = start + STATS_INTERVAL
         next_expiry = start + 60.0
+        next_seen_update = start + 5.0
         self.reset_stats()
 
         try:
@@ -192,6 +199,9 @@ class BeastReaderThread(BaseThread):
                 if now > next_expiry:
                     next_expiry = now + 60
                     self.expire_data_now()
+                if now > next_seen_update:
+                    next_seen_update = now + 5.0
+                    self.send_seen_updates()
 
         finally:
             self.show_stats(start, time.time())
@@ -204,12 +214,42 @@ class BeastReaderThread(BaseThread):
 
     def expire_data_now(self):
         total = len(self.aircraft)
-        for ac in self.aircraft.values():
-            if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
-                del self.aircraft[ac.icao]
+        discarded = []
+        with self.aircraft_lock:
+            for ac in self.aircraft.values():
+                if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
+                    if ac.reported:
+                        discarded.append(ac.icao)
+                    del self.aircraft[ac.icao]
+
+        if discarded:
+            self.send_message({'ac_lost':['{0:06x}'.format(icao) for icao in discarded]})
                 
         expired = total - len(self.aircraft)
         self.log('Expired {0}/{1} aircraft', expired, total)
+
+    def send_seen_updates(self):
+        if self.newly_seen:
+            self.send_message({'ac_seen': ['{0:06x}'.format(ac.icao) for ac in self.newly_seen]})
+            self.newly_seen.clear()
+
+    def report_ac(self, ac):
+        ac.reported = True
+        self.newly_seen.add(ac)
+
+    def start_sending(self, aclist):
+        with self.aircraft_lock:
+            for icao in aclist:
+                self.requested_traffic.add(icao)
+                ac = self.aircraft.get(icao)
+                if ac: ac.requested = True
+
+    def stop_sending(self, aclist):
+        with self.aircraft_lock:
+            for icao in aclist:
+                self.requested_traffic.discard(icao)
+                ac = self.aircraft.get(icao)
+                if ac: ac.requested = False
 
     def process_message(self, message):
         self.st_msg_in += 1
@@ -235,14 +275,18 @@ class BeastReaderThread(BaseThread):
 
         ac = self.aircraft.get(message.address)
         if not ac: return False  # not a known ICAO
-        
+
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return   # wait for more messages
+        if ac.reported and not ac.requested: return
         if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
         if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
         if message.timestamp - ac.last_altitude_timestamp > TS(15): return     # too long since altitude reported
+        if not ac.reported:
+            self.report_ac(ac)
+            return
 
         # Candidate for MLAT
         self.st_msg_dfmisc_candidates += 1
@@ -257,15 +301,19 @@ class BeastReaderThread(BaseThread):
 
         ac = self.aircraft.get(message.address)
         if not ac: return False  # not a known ICAO
-        
+
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
         ac.last_altitude_timestamp = message.timestamp
         ac.altitude = message.altitude
 
         if ac.messages < 10: return   # wait for more messages
+        if ac.reported and not ac.requested: return
         if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
         if (message.timestamp - self.last_ref_timestamp) > TS(30): return      # too long since we sent a clock reference, can't mlat
+        if not ac.reported:
+            self.report_ac(ac)
+            return
 
         # Candidate for MLAT
         self.st_msg_dfmisc_candidates += 1
@@ -278,19 +326,26 @@ class BeastReaderThread(BaseThread):
 
         ac = self.aircraft.get(message.address)
         if not ac:
-            self.aircraft[message.address] = ac = Aircraft(message.address)
-            ac.messages += 1
-            ac.last_message_timestamp = message.timestamp
+            with self.aircraft_lock:
+                ac = Aircraft(message.address)
+                ac.requested = (message.address in self.requested_traffic)
+                ac.messages += 1
+                ac.last_message_timestamp = message.timestamp
+                self.aircraft[message.address] = ac
             return # will need some more messages..
 
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return   # wait for more messages
+        if ac.reported and not ac.requested: return
         if ac.altitude is None: return    # need an altitude
         if (message.timestamp - ac.last_position_timestamp) < TS(60): return   # reported position recently, no need for mlat
         if (message.timestamp - self.last_ref_timestamp) > TS(15): return      # too long since we sent a clock reference, can't mlat
         if (message.timestamp - ac.last_altitude_timestamp) > TS(15): return   # no recent altitude available
+        if not ac.reported:
+            self.report_ac(ac)
+            return
 
         # Candidate for MLAT
         self.st_msg_df11_candidates += 1
@@ -303,15 +358,24 @@ class BeastReaderThread(BaseThread):
 
         ac = self.aircraft.get(message.address)
         if not ac:
-            self.aircraft[message.address] = ac = Aircraft(message.address)
-            ac.messages += 1
-            ac.last_message_timestamp = ac.last_position_timestamp = message.timestamp
+            with self.aircraft_lock:
+                ac = Aircraft(message.address)
+                ac.requested = (message.address in self.requested_traffic)
+                ac.messages += 1
+                ac.last_message_timestamp = ac.last_position_timestamp = message.timestamp
+                self.aircraft[message.address] = ac
             return # wait for more messages
 
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return
+        if ac.reported and not ac.requested: return
+
+        if not ac.reported:
+            self.report_ac(ac)
+            return
+
         if message.altitude is None: return    # need an altitude
 
         if message.even_cpr:
@@ -328,14 +392,14 @@ class BeastReaderThread(BaseThread):
         if not ac.even_message or not ac.odd_message: return
         if abs(ac.even_timestamp - ac.odd_timestamp) > TS(5): return
 
-
         # this is a useful reference message pair
+        if not ac.reported: self.newly_seen.add(ac)
         self.last_ref_timestamp = message.timestamp
         self.st_msg_df17_candidates += 1
         now = time.time()
         line = '{{"ref":{{"@":{0},"et":{1},"em":"{2}","ot":{3},"om":"{4}"}}}}'.format(now, ac.even_timestamp, str(ac.even_message), ac.odd_timestamp, str(ac.odd_message))
         self.send_message_raw(now,line)
-        
+
     def send_message(self, msg):
         c = self.consumer # copy in case of concurrent modification
         if not c: return        
@@ -375,13 +439,64 @@ class BeastReaderThread(BaseThread):
                             }
                         })
 
-class MlatWriterThread(BaseThread):
-    def __init__(self, host, port, handshake_data, set_consumer, offer_zlib):
-        BaseThread.__init__(self, name="mlat-out")
+class ServerReadThread(BaseThread):
+    def __init__(self, clientsocket, input_side):
+        BaseThread.__init__(self, name="server-read")
+        self.clientsocket = clientsocket
+        self.input_side = input_side
+
+    def run(self):
+        try:
+            while True:
+                with self.wakeup:
+                    now = time.time()
+                    buf = ''
+                    while not self.terminating:
+                        try:
+                            moredata = self.clientsocket.read(4096)
+                        except socket.timeout as e:
+                            continue
+
+                        if not moredata:
+                            self.log("EOF from server")
+                            return
+
+                        buf = buf + moredata
+                        lines = buf.split('\n')
+                        for line in lines[:-1]:
+                            self.process_server_line(line)
+                        buf = lines[-1]
+                        if len(buf) > 3072:
+                            raise IOError('Residual data from server too long')
+
+        except IOError as e:
+            self.log('Disconnected: socket error: ' + str(e))
+            
+        except:
+            self.log_exc('Disconnected: unexpected error')
+
+        finally:
+            self.clientsocket.close() # should wake up the writer side too
+
+    def process_server_line(self, line):
+        req = json.loads(line)        
+        if req['start_sending']:
+            self.input_side.start_sending(req['start_sending'])
+        elif req['stop_sending']:
+            self.input_side.stop_sending(req['stop_sending'])
+        elif req['disconnect']:
+            self.log('Server disconnected us: {0}', req['disconnected'])
+        else:
+            self.log('Unhandled server message: {0}', req)
+
+
+class ServerCommsThread(BaseThread):
+    def __init__(self, host, port, handshake_data, input_side, offer_zlib):
+        BaseThread.__init__(self, name="server-comms")
         self.host = host
         self.port = port
         self.handshake_data = handshake_data
-        self.set_consumer = set_consumer
+        self.input_side = input_side
         self.offer_zlib = offer_zlib
         self.write = None
         self.connected = False
@@ -415,13 +530,17 @@ class MlatWriterThread(BaseThread):
         while not self.terminating:
             try:
                 self.log('Connecting to {0}:{1}', self.host, self.port)
+                read_thread = None
                 with closing(socket.create_connection((self.host, self.port), 30.0)) as s:
                     self.log('Connected, handshaking')
                     self.handshake(s)
                     self.connected = True
                     self.queue = []
-                    self.set_consumer(self)
+                    self.input_side.set_consumer(self)
 
+                    s.settimeout(15.0)
+                    read_thread = ServerReadThread(s, self.input_side)
+                    read_thread.start()
                     self.write_messages(s)
 
                 self.log('Disconnected: socket closed')
@@ -433,8 +552,11 @@ class MlatWriterThread(BaseThread):
                 self.log_exc('Disconnected: unexpected error')
 
             finally:
+                if read_thread:
+                    read_thread.terminate()
+
                 self.connected = False
-                self.set_consumer(None)
+                self.input_side.set_consumer(None)
 
             now = time.time()
             reconnect = now + self.reconnect_interval
@@ -487,7 +609,7 @@ class MlatWriterThread(BaseThread):
 
         handshake_msg = {
             '@' : round(time.time(),1),
-            'version' : 2,
+            'version' : 3,
             'compress' : compress_methods,
         }
 
@@ -678,9 +800,9 @@ def main():
     args = parser.parse_args()
 
     reader = BeastReaderThread(host=args.input_host, port=args.input_port, random_drop=args.random_drop)
-    writer = MlatWriterThread(host=args.output_host, port=args.output_port,
-                              handshake_data={'lat':args.lat, 'lon':args.lon, 'alt':args.alt, 'user':args.user,'random_drop':args.random_drop},
-                              set_consumer=reader.set_consumer, offer_zlib=args.compress)
+    writer = ServerCommsThread(host=args.output_host, port=args.output_port,
+                               handshake_data={'lat':args.lat, 'lon':args.lon, 'alt':args.alt, 'user':args.user,'random_drop':args.random_drop},
+                               input_side=reader, offer_zlib=args.compress)
 
     reader.start()
     writer.start()
