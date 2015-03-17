@@ -13,4 +13,4 @@ setup (name = 'MlatClient',
        author = 'Oliver Jowett',
        author_email = 'oliver@mutability.co.uk',
        ext_modules = [modes_ext],
-       scripts = ['mlat-client.py'])
+       scripts = ['mlat-client'])

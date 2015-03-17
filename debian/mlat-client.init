@@ -17,7 +17,7 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="mlat-client daemon"
 NAME=mlat-client
-DAEMON=/usr/bin/$NAME.py
+DAEMON=/usr/bin/$NAME
 ARGS=""
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
