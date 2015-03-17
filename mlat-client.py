@@ -27,7 +27,14 @@ def log_exc(msg, *args, **kwards):
     print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
     traceback.print_exc(sys.stderr)
 
-class SBSListener(asyncore.dispatcher):
+class LoggingMixin:
+    def log(self, message):
+        log('{0}', message)
+
+    def log_info(self, message, type='info'):
+        log('{0}: {1}', message, type)
+
+class SBSListener(LoggingMixin, asyncore.dispatcher):
     def __init__(self, port):
         asyncore.dispatcher.__init__(self)
         self.port = port
@@ -63,7 +70,7 @@ class SBSListener(asyncore.dispatcher):
             channel.close()
         self.close()
 
-class SBSConnection(asyncore.dispatcher_with_send):
+class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
     heartbeat_interval = 30.0
     template = 'MSG,{mtype},1,1,{addr},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
 
@@ -125,7 +132,7 @@ class SBSConnection(asyncore.dispatcher_with_send):
 
         self.next_heartbeat = time.time() + self.heartbeat_interval
 
-class ReconnectingConnection(asyncore.dispatcher):
+class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     reconnect_interval = 30.0
 
     def __init__(self, host, port):
