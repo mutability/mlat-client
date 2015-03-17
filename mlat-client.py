@@ -12,7 +12,7 @@ import sys
 if __name__ == '__main__':
     print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
 
-import socket, json, time, traceback, asyncore, zlib, argparse, struct
+import socket, json, time, traceback, asyncore, zlib, argparse, struct, math
 from contextlib import closing
 
 import _modes
@@ -26,6 +26,104 @@ def log(msg, *args, **kwargs):
 def log_exc(msg, *args, **kwards):
     print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
     traceback.print_exc(sys.stderr)
+
+class SBSListener(asyncore.dispatcher):
+    def __init__(self, port):
+        asyncore.dispatcher.__init__(self)
+        self.port = port
+
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        self.bind( ('', port) )
+        self.listen(0)
+
+        self.output_channels = set()
+
+        log('Listening for SBS connections on port {0}', port)
+
+    def handle_accept(self):
+        accepted = self.accept()
+        if not accepted: return
+
+        new_socket, address = accepted
+        log('Accepted connection for SBS output from {0}:{1}', address[0], address[1])
+
+        self.output_channels.add(SBSConnection(self, new_socket, address))
+
+    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk):
+        for channel in list(self.output_channels):
+            channel.send_position(timestamp, addr, lat, lon, alt, callsign, squawk)
+
+    def heartbeat(self, now):
+        for channel in list(self.output_channels):
+            channel.heartbeat(now)
+
+    def disconnect(self):
+        for channel in list(self.output_channels):
+            channel.close()
+        self.close()
+
+class SBSConnection(asyncore.dispatcher_with_send):
+    heartbeat_interval = 30.0
+    template = 'MSG,{mtype},1,1,{addr},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
+
+    def __init__(self, listener, socket, addr):
+        asyncore.dispatcher_with_send.__init__(self, sock=socket)
+        self.listener = listener
+        self.addr = addr
+        self.next_heartbeat = time.time() + self.heartbeat_interval
+
+    def heartbeat(self, now):
+        if now > self.next_heartbeat:
+            self.next_heartbeat = now + self.heartbeat_interval
+            try:
+                self.send('\n')
+            except socket.error:
+                self.handle_error()
+
+    def close(self):
+        asyncore.dispatcher_with_send.close(self)
+        self.listener.output_channels.discard(self)
+
+    def handle_read(self):
+        self.recv(1024)  # discarded
+
+    def handle_close(self):
+        log('Lost SBS output connection from {0}:{1}', self.addr[0], self.addr[1])
+        self.close()
+
+    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk):
+        now = time.time()
+
+        now_date = time.strftime("%Y/%m/%d", time.gmtime(now))
+        now_time = time.strftime("%H:%M:%S", time.gmtime(now)) + ".{0:.0f}".format(math.modf(now)[0] * 1000)
+        rcv_date = time.strftime("%Y/%m/%d", time.gmtime(timestamp))
+        rcv_time = time.strftime("%H:%M:%S", time.gmtime(timestamp)) + ".{0:.0f}".format(math.modf(timestamp)[0] * 1000)
+        line = self.template.format(mtype=3,
+                                    addr=addr,
+                                    rcv_date = rcv_date,
+                                    rcv_time = rcv_time,
+                                    now_date = now_date,
+                                    now_time = now_time,
+                                    callsign = callsign if callsign else '',
+                                    altitude = int(alt),
+                                    speed = '',
+                                    heading = '',
+                                    lat = round(lat,4),
+                                    lon = round(lon,4),
+                                    vrate = '',
+                                    squawk = squawk if squawk else '',
+                                    fs = '',
+                                    emerg = '',
+                                    ident = '',
+                                    aog = '')
+
+        try:
+            self.send(line + '\n')
+        except socket.error:
+            self.handle_error()
+
+        self.next_heartbeat = time.time() + self.heartbeat_interval
 
 class ReconnectingConnection(asyncore.dispatcher):
     reconnect_interval = 30.0
@@ -44,12 +142,12 @@ class ReconnectingConnection(asyncore.dispatcher):
         self.reconnect()
 
     def close(self, manual_close=False):
+        asyncore.dispatcher.close(self)
+
         if self.state != 'disconnected':
             if not manual_close:
                 log('Lost connection to {host}:{port}', host=self.host, port=self.port)
-                #traceback.print_stack()
 
-            asyncore.dispatcher.close(self)
             self.state = 'disconnected'
             self.lost_connection()
             self.reset_connection()
@@ -91,6 +189,17 @@ class ReconnectingConnection(asyncore.dispatcher):
 
     def handle_write(self):
         pass
+
+    def handle_close(self):
+        self.close()
+
+    def handle_error(self):
+        if self.connecting:
+            t,v,tb = sys.exc_info()
+            log('Connection to {host}:{port} failed: {ex!s}', host=self.host, port=self.port, ex=v)
+            self.handle_close()
+        else:
+            asyncore.dispatcher.handle_error(self)
 
     def reset_connection(self):
         pass
@@ -142,10 +251,11 @@ class ServerConnection(ReconnectingConnection):
     reconnect_interval = 30.0
     heartbeat_interval = 120.0
 
-    def __init__(self, host, port, handshake_data, offer_zlib):
+    def __init__(self, host, port, handshake_data, offer_zlib, return_results):
         ReconnectingConnection.__init__(self, host, port)
         self.handshake_data = handshake_data
         self.offer_zlib = offer_zlib
+        self.return_results = return_results
         self.coordinator = None
         self.selective_traffic = False
 
@@ -236,7 +346,7 @@ class ServerConnection(ReconnectingConnection):
         if self.offer_zlib:
             compress_methods.append('zlib')
 
-        handshake_msg = { 'version' : 2, 'compress' : compress_methods, 'selective_traffic' : True, 'heartbeat' : True, 'return_results' : True }
+        handshake_msg = { 'version' : 2, 'compress' : compress_methods, 'selective_traffic' : True, 'heartbeat' : True, 'return_results' : self.return_results }
         handshake_msg.update(self.handshake_data)
         self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
         self.handle_server_line = self.handle_handshake_response
@@ -297,6 +407,7 @@ class ServerConnection(ReconnectingConnection):
         log('  Compression:       {0}', compress)
         log('  Selective traffic: {0}', self.selective_traffic and 'enabled' or 'disabled')
         log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
+        #log('  Return traffic:    {0}', response.get('return_traffic',False) and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request
@@ -312,7 +423,8 @@ class ServerConnection(ReconnectingConnection):
             pass
         elif 'result' in request:
             result = request['result']
-            self.coordinator.received_mlat_result(addr=result['addr'],
+            self.coordinator.received_mlat_result(timestamp=result['@'],
+                                                  addr=result['addr'],
                                                   lat=result['lat'],
                                                   lon=result['lon'],
                                                   alt=result['alt'],
@@ -343,9 +455,10 @@ class Coordinator:
     report_interval = 15.0
     expiry_interval = 60.0
 
-    def __init__(self, beast, server, random_drop):
+    def __init__(self, beast, server, sbs, random_drop):
         self.beast = beast
         self.server = server
+        self.sbs = sbs
         self.random_drop_cutoff = int(255 * random_drop)
 
         self.aircraft = {}
@@ -389,6 +502,7 @@ class Coordinator:
         finally:
             if self.beast.socket: self.beast.disconnect('Server shutting down')
             if self.server.socket: self.server.disconnect('Server shutting down')
+            if self.sbs: self.sbs.disconnect()
 
     def input_connected(self):
         self.server.send_json({'input_connected' : 'OK'})
@@ -427,14 +541,14 @@ class Coordinator:
             if handler: handler(message)
 
     def start_sending(self, icao_list):
-        log('Server requests traffic for {0} aircraft', len(icao_list))
+        #log('Server requests traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = True
         self.requested_traffic.update(icao_list)
 
     def stop_sending(self, icao_list):
-        log('Server stops traffic for {0} aircraft', len(icao_list))
+        #log('Server stops traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = False
@@ -443,6 +557,7 @@ class Coordinator:
     def heartbeat(self, now):
         self.beast.heartbeat(now)
         self.server.heartbeat(now)
+        if self.sbs: self.sbs.heartbeat(now)
 
         if self.next_report and now >= self.next_report:
             self.next_report = now + self.report_interval
@@ -460,7 +575,7 @@ class Coordinator:
 
     def send_aircraft_report(self):
         if self.newly_seen:
-            log('Telling server about {0} new aircraft', len(self.newly_seen))
+            #log('Telling server about {0} new aircraft', len(self.newly_seen))
             self.server.send_seen(self.newly_seen)
             self.newly_seen.clear()
             
@@ -584,9 +699,9 @@ class Coordinator:
 
         self.server.send_sync(ac.even_message, ac.odd_message)
 
-    def received_mlat_result(self, addr, lat, lon, alt, callsign, squawk, hdop, vdop, tdop, gdop, nstations):
-        # todo: local SBS output, etc
-        pass
+    def received_mlat_result(self, timestamp, addr, lat, lon, alt, callsign, squawk, hdop, vdop, tdop, gdop, nstations):
+        if self.sbs:
+            self.sbs.send_position(timestamp, addr, lat, lon, alt, callsign, squawk)
 
 def main():
     def latitude(s):
@@ -661,6 +776,9 @@ def main():
                         help="Port of the multilateration server",
                         type=port,
                         default=40147)
+    parser.add_argument('--sbs-port',
+                        help="Local port to listen on for connections that will receive SBS-format results",
+                        type=port)
     parser.add_argument('--no-compression',
                         dest='compress',
                         help="Don't offer to use zlib compression to the multilateration server",
@@ -680,9 +798,14 @@ def main():
                                               'alt':args.alt,
                                               'user':args.user,
                                               'random_drop':args.random_drop},
-                              offer_zlib=args.compress)
+                              offer_zlib=args.compress,
+                              return_results=(args.sbs_port is not None))
+    if args.sbs_port:
+        sbs = SBSListener(args.sbs_port)
+    else:
+        sbs = None
 
-    coordinator = Coordinator(beast = beast, server = server, random_drop=args.random_drop)
+    coordinator = Coordinator(beast = beast, server = server, sbs = sbs, random_drop=args.random_drop)
     coordinator.run()
 
 if __name__ == '__main__':
