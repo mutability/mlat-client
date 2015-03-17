@@ -5,6 +5,14 @@ Description: User to run mlat-client as:
 Type: string
 Default: mlat
 
+Template: mlat-client/server-user
+Description: User to log into the server as:
+ The multilateration client identifies itself to the server via a short
+ username. This can be anything you like, it's just used to identify who is
+ connecting. Each receiver should have a different value.
+Type: string
+Default:
+
 Template: mlat-client/log-file
 Description: Path to log to:
  When started automatically, mlat-client will log its output somewhere. This
@@ -35,6 +43,22 @@ Description: Altitude of receiver, in metres (height above ellipsoid):
  fine. This value should be in metres.
 Type: string
 Default:
+
+Template: mlat-client/input-host
+Description: Input host for Mode S traffic:
+ The multilateration client needs to read Beast-format Mode S messages from a
+ receiver such as dump1090. Here you can configure the host that the receiver
+ is running on.
+Type: string
+Default: localhost
+
+Template: mlat-client/input-port
+Description: Input port for Mode S traffic:
+ The multilateration client needs to read Beast-format Mode S messages from a
+ receiver such as dump1090. Here you can configure the port that the receiver
+ is listening on. dump1090 will produce the right format on port 30005 by default.
+Type: string
+Default: 30005
 
 Template: mlat-client/sbs-port
 Description: Port for SBS-format output connections (0 disables):

@@ -17,7 +17,7 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="mlat-client daemon"
 NAME=mlat-client
-DAEMON=/usr/bin/mlat-client.py
+DAEMON=/usr/bin/$NAME.py
 ARGS=""
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
@@ -42,7 +42,7 @@ badconfig=0
 [ -z "$INPUT_PORT" ] && badconfig=1
 
 ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-host $INPUT_HOST --input-port $INPUT_PORT"
-if [ "$SBS_PORT" != "0" ]; then ARGS="--sbs-port $SBS_PORT"; fi
+if [ "$SBS_PORT" != "0" ]; then ARGS="$ARGS --sbs-port $SBS_PORT"; fi
 ARGS="$ARGS $EXTRA_ARGS"
 
 # Load the VERBOSE setting and other rcS variables
@@ -68,10 +68,10 @@ do_start()
             return 2
         fi
 
-	start-stop-daemon --start --quiet --pidfile $PIDFILE --user "$RUN_AS_USER" --exec $DAEMON --test > /dev/null \
+	start-stop-daemon --start --quiet --pidfile $PIDFILE --user "$RUN_AS_USER" --startas $DAEMON --test > /dev/null \
 		|| return 1
 
-	start-stop-daemon --start --nicelevel 5 --quiet --pidfile $PIDFILE --user "$RUN_AS_USER" --chuid "$RUN_AS_USER" --make-pidfile --background --no-close --exec $DAEMON -- \
+	start-stop-daemon --start --nicelevel 5 --quiet --pidfile $PIDFILE --user "$RUN_AS_USER" --chuid "$RUN_AS_USER" --make-pidfile --background --no-close --startas $DAEMON -- \
 		$ARGS >>$LOGFILE 2>&1 \
 		|| return 2
         sleep 1
@@ -87,7 +87,7 @@ do_stop()
 	#   1 if daemon was already stopped
 	#   2 if daemon could not be stopped
 	#   other if a failure occurred
-	start-stop-daemon --stop --retry=TERM/30/KILL/5 --pidfile $PIDFILE --user "$RUN_AS_USER" --exec $DAEMON
+	start-stop-daemon --stop --retry=TERM/30/KILL/5 --pidfile $PIDFILE --user "$RUN_AS_USER"
 	RETVAL="$?"
 	[ "$RETVAL" = 2 ] && return 2
         sleep 1
