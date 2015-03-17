@@ -1,0 +1,34 @@
+## TEMPLATE FILE - This is used to create /etc/default/mlat-client ##
+## The first three lines will be discarded                         ##
+
+# mlat-client configuration file
+# This is a POSIX shell fragment.
+# You can edit this file directly, or use
+# "dpkg-reconfigure mlat-client"
+
+# System user to run as.
+RUN_AS_USER=
+
+# User to log into the server as
+SERVER_USER=
+
+# Logfile to log to
+LOGFILE=
+
+# Input host to connect to for Beast-format messages
+INPUT_HOST=
+
+# Input port to connect to for Beast-format messages
+INPUT_PORT=
+
+# Latitude of the receiver, in decimal degrees
+LAT=
+
+# Longitude of the receiver, in decimal degrees
+LON=
+
+# Altitude of the receiver, in metres
+ALT=
+
+# Port to listen for SBS connections, or 0 to disable
+SBS_PORT=

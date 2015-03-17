@@ -1,0 +1,5 @@
+/var/log/mlat-client.log {
+  daily
+  rotate 4
+  copytruncate
+}

@@ -1,0 +1,12 @@
+Source: mlat-client
+Section: embedded
+Priority: extra
+Maintainer: Oliver Jowett <oliver@mutability.co.uk>
+Build-Depends: debhelper(>=8), python
+Standards-Version: 3.9.3
+X-Python-Version: >= 2.6
+
+Package: mlat-client
+Architecture: any
+Depends: ${shlib:Depends}, ${python:Depends}, ${misc:Depends}, adduser
+Description: ADS-B multilateration client.

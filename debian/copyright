@@ -1,0 +1,8 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: mlat-client
+Upstream-Contact: Oliver Jowett <oliver@mutability.co.uk>
+
+Files: *
+Copyright: Copyright 2015 Oliver Jowett <oliver@mutability.co.uk>
+License: 
+ All rights reserved. Do not redistribute.
