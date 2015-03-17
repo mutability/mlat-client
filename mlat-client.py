@@ -1,4 +1,4 @@
-#!/usr/bin/python2 -O
+#!/usr/bin/python2
 
 # Copyright 2015, Oliver Jowett <oliver@mutability.co.uk>
 # All rights reserved. Do not redistribute.
