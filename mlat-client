@@ -512,6 +512,7 @@ class Coordinator:
             if self.sbs: self.sbs.disconnect()
 
     def input_connected(self):
+        self.last_rcv_timestamp = 0
         self.server.send_json({'input_connected' : 'OK'})
 
     def input_disconnected(self):
