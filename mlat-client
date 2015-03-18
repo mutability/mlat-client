@@ -103,9 +103,9 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
         now = time.time()
 
         now_date = time.strftime("%Y/%m/%d", time.gmtime(now))
-        now_time = time.strftime("%H:%M:%S", time.gmtime(now)) + ".{0:.0f}".format(math.modf(now)[0] * 1000)
+        now_time = time.strftime("%H:%M:%S", time.gmtime(now)) + ".{0:03.0f}".format(math.modf(now)[0] * 1000)
         rcv_date = time.strftime("%Y/%m/%d", time.gmtime(timestamp))
-        rcv_time = time.strftime("%H:%M:%S", time.gmtime(timestamp)) + ".{0:.0f}".format(math.modf(timestamp)[0] * 1000)
+        rcv_time = time.strftime("%H:%M:%S", time.gmtime(timestamp)) + ".{0:03.0f}".format(math.modf(timestamp)[0] * 1000)
         line = self.template.format(mtype=3,
                                     addr=addr,
                                     rcv_date = rcv_date,
