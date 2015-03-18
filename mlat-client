@@ -1,4 +1,5 @@
 #!/usr/bin/python2
+# -*- python -*-
 
 # Copyright 2015, Oliver Jowett <oliver@mutability.co.uk>
 # All rights reserved. Do not redistribute.
@@ -535,15 +536,20 @@ class Coordinator:
     def input_received_messages(self, messages):
         for message in messages:
             if self.random_drop_cutoff and message[-1] < self.random_drop_cutoff: # last byte, part of the checksum, should be fairly randomly distributed
-                continue;
+                continue
 
             if message.timestamp < self.last_rcv_timestamp:
-                return
+                if (self.last_rcv_timestamp - message.timestamp) > TS(60):
+                    log("Very out of range message timestamp seen. Assuming something is horribly wrong and forcing a reconnect.")
+                    self.beast.reconnect()
+                    return
+
+                continue
 
             self.last_rcv_timestamp = message.timestamp
 
             if not message.valid:
-                return
+                continue
 
             handler = self.df_handlers.get(message.df)
             if handler: handler(message)
