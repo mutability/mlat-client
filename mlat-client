@@ -519,6 +519,10 @@ class Coordinator:
 
     def input_disconnected(self):
         self.server.send_json({'input_disconnected' : 'no longer connected'})
+        # expire everything
+        discarded = list(self.aircraft.keys())
+        self.aircraft.clear()
+        self.server.send_lost(discarded)
 
     def server_connected(self):
         self.requested_traffic = set()
