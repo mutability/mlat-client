@@ -13,7 +13,7 @@ import sys
 if __name__ == '__main__':
     print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
 
-import socket, json, time, traceback, asyncore, zlib, argparse, struct, math
+import socket, json, time, traceback, asyncore, zlib, argparse, struct, math, errno
 from contextlib import closing
 
 import _modes
@@ -202,12 +202,13 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         self.close()
 
     def handle_error(self):
-        if self.connecting:
-            t,v,tb = sys.exc_info()
-            log('Connection to {host}:{port} failed: {ex!s}', host=self.host, port=self.port, ex=v)
-            self.handle_close()
+        t,v,tb = sys.exc_info()
+        if isinstance(v,IOError):
+            log('Connection to {host}:{port} lost: {ex!s}', host=self.host, port=self.port, ex=v)
         else:
-            asyncore.dispatcher.handle_error(self)
+            log_exc('Unexpected exception on connection to {host}:{port}', host=self.host, port=self.port)
+
+        self.handle_close()
 
     def reset_connection(self):
         pass
@@ -292,7 +293,7 @@ class ServerConnection(ReconnectingConnection):
             sent = self.send(self.writebuf)
             self.writebuf = self.writebuf[sent:]
             if len(self.writebuf) > 65536:
-                self.disconnect('Server write buffer overflow (too much unsent data)')
+                raise IOError('Server write buffer overflow (too much unsent data)')
 
     def fill_uncompressed(self):
         if not self.linebuf: return
