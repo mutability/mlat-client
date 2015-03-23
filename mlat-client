@@ -543,6 +543,10 @@ class Coordinator:
             if self.random_drop_cutoff and message[-1] < self.random_drop_cutoff: # last byte, part of the checksum, should be fairly randomly distributed
                 continue
 
+            if message.timestamp == 0:
+                # heartbeat etc
+                continue
+
             if message.timestamp < self.last_rcv_timestamp:
                 if (self.last_rcv_timestamp - message.timestamp) > TS(60):
                     log("Very out of range message timestamp seen (last {0:012x}, now {1:012x}). Assuming something is horribly wrong and forcing a reconnect.", self.last_rcv_timestamp, message.timestamp)
