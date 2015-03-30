@@ -4,6 +4,7 @@ mlat-client (0.1.4~dev) UNRELEASED; urgency=medium
   * If no Beast data (not even keepalives) is seen for 2.5 minutes, reconnect.
   * Clean up connection logging a little.
   * Re-add some periodic stats.
+  * Increase the allowable backwards-timestamp value a little.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 30 Mar 2015 21:19:15 +0100
 
