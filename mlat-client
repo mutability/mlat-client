@@ -188,7 +188,6 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
             self.close()
 
     def handle_connect(self):
-        log('Connected to {host}:{port}', host=self.host, port=self.port)
         self.state = 'connected'
         self.start_connection()
 
@@ -361,7 +360,7 @@ class ServerConnection(ReconnectingConnection):
         self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def start_connection(self):
-        log('Connected to server at {0}:{1}, handshaking', self.host, self.port)
+        log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
         self.state = 'handshaking'
 
         compress_methods = ['none']
