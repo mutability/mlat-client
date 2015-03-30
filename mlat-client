@@ -73,7 +73,7 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
 
 class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
     heartbeat_interval = 30.0
-    template = 'MSG,{mtype},1,1,{addr},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
+    template = 'MSG,{mtype},1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
 
     def __init__(self, listener, socket, addr):
         asyncore.dispatcher_with_send.__init__(self, sock=socket)
@@ -433,7 +433,7 @@ class ServerConnection(ReconnectingConnection):
         elif 'result' in request:
             result = request['result']
             self.coordinator.received_mlat_result(timestamp=result['@'],
-                                                  addr=result['addr'],
+                                                  addr=int(result['addr'],16),
                                                   lat=result['lat'],
                                                   lon=result['lon'],
                                                   alt=result['alt'],

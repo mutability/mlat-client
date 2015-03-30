@@ -1,3 +1,9 @@
+mlat-client (0.1.4~dev) UNRELEASED; urgency=medium
+
+  * Emit ICAO addresses in SBS output in all-caps to make VRS happier.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 30 Mar 2015 21:19:15 +0100
+
 mlat-client (0.1.3) unstable; urgency=medium
 
   * If message timestamps go significantly backwards, drop the input connection
