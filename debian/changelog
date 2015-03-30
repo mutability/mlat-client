@@ -1,6 +1,7 @@
 mlat-client (0.1.4~dev) UNRELEASED; urgency=medium
 
   * Emit ICAO addresses in SBS output in all-caps to make VRS happier.
+  * If no Beast data (not even keepalives) is seen for 2.5 minutes, reconnect.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 30 Mar 2015 21:19:15 +0100
 

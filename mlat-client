@@ -220,20 +220,31 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         pass
 
 class BeastConnection(ReconnectingConnection):
+    inactivity_timeout = 150.0
+
     def __init__(self, host, port):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
+        self.last_data_received = None
 
     def reset_connection(self):
         self.readbuf = bytearray()
 
     def start_connection(self):
         log('Beast input connected to {0}:{1}', self.host, self.port)
+        self.last_data_received = time.time()
         self.state = 'ready'
         self.coordinator.input_connected()
 
     def lost_connection(self):
         self.coordinator.input_disconnected()
+
+    def heartbeat(self, now):
+        ReconnectingConnection.heartbeat(self,now)
+
+        if self.state == 'ready' and (now - self.last_data_received) > self.inactivity_timeout:
+            self.disconnect('No data (not even keepalives) received for {0:.0f} seconds'.format(self.inactivity_timeout))
+            self.reconnect()
 
     def handle_read(self):
         try:
@@ -245,7 +256,9 @@ class BeastConnection(ReconnectingConnection):
 
         if not moredata:
             self.close()
+            return
 
+        self.last_data_received = time.time()
         self.readbuf += moredata
             
         consumed,messages = _modes.packetize_beast_input(self.readbuf)
