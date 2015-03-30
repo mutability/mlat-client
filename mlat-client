@@ -35,6 +35,17 @@ class LoggingMixin:
     def log_info(self, message, type='info'):
         log('{0}: {1}', message, type)
 
+class Stats:
+    def __init__(self, now):
+        self.start = now
+        self.server_tx_bytes = 0
+        self.server_rx_bytes = 0
+        self.beast_rx_bytes = 0
+        self.beast_rx_messages = 0
+        self.mlat_positions = 0
+
+global_stats = Stats(time.time())
+
 class SBSListener(LoggingMixin, asyncore.dispatcher):
     def __init__(self, port):
         asyncore.dispatcher.__init__(self)
@@ -259,6 +270,7 @@ class BeastConnection(ReconnectingConnection):
 
         self.last_data_received = time.time()
         self.readbuf += moredata
+        global_stats.beast_rx_bytes += len(moredata)
             
         consumed,messages = _modes.packetize_beast_input(self.readbuf)
         if consumed: self.readbuf = self.readbuf[consumed:]        
@@ -266,6 +278,7 @@ class BeastConnection(ReconnectingConnection):
             raise ParseError('parser broken - buffer not being consumed')
 
         if messages:
+            global_stats.beast_rx_messages += len(messages)
             self.coordinator.input_received_messages(messages)
 
 class ServerConnection(ReconnectingConnection):
@@ -304,6 +317,7 @@ class ServerConnection(ReconnectingConnection):
         if self.writebuf:
             sent = self.send(self.writebuf)
             self.writebuf = self.writebuf[sent:]
+            global_stats.server_tx_bytes += sent
             if len(self.writebuf) > 65536:
                 raise IOError('Server write buffer overflow (too much unsent data)')
 
@@ -393,6 +407,7 @@ class ServerConnection(ReconnectingConnection):
             return
 
         self.readbuf += moredata
+        global_stats.server_rx_bytes += len(moredata)
         lines = self.readbuf.split('\n')
         self.readbuf = lines[-1]
         for line in lines[:-1]:
@@ -473,8 +488,9 @@ class Aircraft:
         self.requested = True
 
 class Coordinator:
-    report_interval = 15.0
-    expiry_interval = 60.0
+    report_interval = 10.0
+    expiry_interval = 30.0
+    stats_interval = 900.0
 
     def __init__(self, beast, server, sbs, random_drop):
         self.beast = beast
@@ -498,6 +514,7 @@ class Coordinator:
 
         self.next_report = None
         self.next_expiry = None
+        self.next_stats = time.time() + self.stats_interval
 
         beast.coordinator = self
         server.coordinator = self
@@ -602,6 +619,10 @@ class Coordinator:
             self.next_expiry = now + self.expiry_interval
             self.expire()
 
+        if now >= self.next_stats:
+            self.next_stats = now + self.stats_interval
+            self.periodic_stats(now)
+
     def report_aircraft(self, ac):
         ac.reported = True
         if not self.server.selective_traffic:
@@ -632,8 +653,19 @@ class Coordinator:
         if discarded:
             self.server.send_lost(discarded)
 
-        log('Expired {0} aircraft, {1} remaining', discarded_count, len(self.aircraft))
-        log('Sending traffic for {0}/{1} aircraft, server requested {2} aircraft', requested_count, reported_count, len(self.requested_traffic))
+        #log('Expired {0} aircraft, {1} remaining', discarded_count, len(self.aircraft))
+        #log('Sending traffic for {0}/{1} aircraft, server requested {2} aircraft', requested_count, reported_count, len(self.requested_traffic))
+
+    def periodic_stats(self, now):
+        global global_stats
+
+        elapsed = now - global_stats.start
+        log('Receiver: {0}; {1:6.1f} msg/s received     {2:4.1f}kB/s from receiver', self.beast.state, global_stats.beast_rx_messages / elapsed, global_stats.beast_rx_bytes / elapsed / 1000.0)
+        log('Server:   {0}; {1:6.1f} kB/s from server   {2:4.1f}kB/s to server', self.server.state, global_stats.server_rx_bytes / elapsed / 1000.0, global_stats.server_tx_bytes / elapsed / 1000.0)
+        log('Aircraft: {0} known, {1} requested by server', len(self.aircraft), len(self.requested_traffic))
+        if self.server.return_results:
+            log('Results:  {0:3.1f} positions/minute', global_stats.mlat_positions / elapsed * 60.0)
+        global_stats = Stats(now)
 
     def received_df_misc_noalt(self, message):
         ac = self.aircraft.get(message.address)
@@ -735,6 +767,7 @@ class Coordinator:
         self.server.send_sync(ac.even_message, ac.odd_message)
 
     def received_mlat_result(self, timestamp, addr, lat, lon, alt, callsign, squawk, hdop, vdop, tdop, gdop, nstations):
+        global_stats.mlat_positions += 1
         if self.sbs:
             self.sbs.send_position(timestamp, addr, lat, lon, alt, callsign, squawk)
 
