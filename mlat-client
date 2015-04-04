@@ -538,8 +538,8 @@ class Coordinator:
                     self.heartbeat(now)
 
         finally:
-            if self.beast.socket: self.beast.disconnect('Server shutting down')
-            if self.server.socket: self.server.disconnect('Server shutting down')
+            if self.beast.socket: self.beast.disconnect('Client shutting down')
+            if self.server.socket: self.server.disconnect('Client shutting down')
             if self.sbs: self.sbs.disconnect()
 
     def input_connected(self):
