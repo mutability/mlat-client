@@ -1,3 +1,9 @@
+mlat-client (0.1.5~dev) UNRELEASED; urgency=medium
+
+  * Fix exception logging.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 04 Apr 2015 12:36:19 +0100
+
 mlat-client (0.1.4) unstable; urgency=medium
 
   * Emit ICAO addresses in SBS output in all-caps to make VRS happier.

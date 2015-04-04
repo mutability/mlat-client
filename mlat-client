@@ -24,7 +24,7 @@ def TS(t):
 def log(msg, *args, **kwargs):
     print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
 
-def log_exc(msg, *args, **kwards):
+def log_exc(msg, *args, **kwargs):
     print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
     traceback.print_exc(sys.stderr)
 
