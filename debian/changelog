@@ -2,6 +2,7 @@ mlat-client (0.1.5~dev) UNRELEASED; urgency=medium
 
   * Fix exception logging.
   * Fix server vs client confusion in the shutdown message.
+  * Escape CSV fields that might have commas/quotes.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 04 Apr 2015 12:36:19 +0100
 

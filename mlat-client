@@ -82,6 +82,10 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
             channel.close()
         self.close()
 
+def csv_quote(s):
+    if s.find('\n') == -1 and s.find('"') == -1 and s.find(',') == -1: return s
+    return '"' + s.replace('"', '""') + '"'
+
 class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
     heartbeat_interval = 30.0
     template = 'MSG,{mtype},1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
@@ -124,14 +128,14 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
                                     rcv_time = rcv_time,
                                     now_date = now_date,
                                     now_time = now_time,
-                                    callsign = callsign if callsign else '',
+                                    callsign = csv_quote(callsign) if callsign else '',
                                     altitude = int(alt),
                                     speed = '',
                                     heading = '',
                                     lat = round(lat,4),
                                     lon = round(lon,4),
                                     vrate = '',
-                                    squawk = squawk if squawk else '',
+                                    squawk = csv_quote(squawk) if squawk else '',
                                     fs = '',
                                     emerg = '',
                                     ident = '',
