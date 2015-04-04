@@ -66,6 +66,7 @@ case "$1" in
         subvar receiver-lon LON
         subvar receiver-alt ALT
         subvar sbs-port SBS_PORT
+        subvar sbs-ext-port SBS_EXT_PORT
         subvar extra-args EXTRA_ARGS
 
         cp -a -f $CONFIGFILE $CONFIGFILE.tmp

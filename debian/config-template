@@ -32,3 +32,6 @@ ALT=
 
 # Port to listen for SBS connections, or 0 to disable
 SBS_PORT=
+
+# Port to listen for extended SBS connections, or 0 to disable
+SBS_EXT_PORT=

@@ -3,6 +3,7 @@ mlat-client (0.1.5~dev) UNRELEASED; urgency=medium
   * Fix exception logging.
   * Fix server vs client confusion in the shutdown message.
   * Escape CSV fields that might have commas/quotes.
+  * Add support for extended Basestation-like output format on a separate port via --sbs-ext-port.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 04 Apr 2015 12:36:19 +0100
 

@@ -34,7 +34,8 @@ SCRIPTNAME=/etc/init.d/$NAME
 badconfig=0
 [ -z "$RUN_AS_USER" ] && RUN_AS_USER="missing-RUN_AS_USER-setting-in-config"
 [ -z "$SERVER_USER" ] && badconfig=1
-[ -z "$SBS_OUTPUT_PORT" ] && SBS_OUTPUT_PORT=0
+[ -z "$SBS_PORT" ] && SBS_PORT=0
+[ -z "$SBS_EXT_PORT" ] && SBS_EXT_PORT=0
 [ -z "$LAT" ] && badconfig=1
 [ -z "$LON" ] && badconfig=1
 [ -z "$ALT" ] && badconfig=1
@@ -43,6 +44,7 @@ badconfig=0
 
 ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-host $INPUT_HOST --input-port $INPUT_PORT"
 if [ "$SBS_PORT" != "0" ]; then ARGS="$ARGS --sbs-port $SBS_PORT"; fi
+if [ "$SBS_EXT_PORT" != "0" ]; then ARGS="$ARGS --sbs-ext-port $SBS_EXT_PORT"; fi
 ARGS="$ARGS $EXTRA_ARGS"
 
 # Load the VERBOSE setting and other rcS variables

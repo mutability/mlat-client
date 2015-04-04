@@ -62,10 +62,19 @@ Default: 30005
 
 Template: mlat-client/sbs-port
 Description: Port for SBS-format output connections (0 disables):
- The multilateration client can return the calculated aircraft positions in SBS format.
+ The multilateration client can return the calculated aircraft positions in Basestation format.
  This setting controls the port mlat-client will listen on for these connections.
 Type: string
 Default: 31003
+
+Template: mlat-client/sbs-ext-port
+Description: Port for extended-SBS-format output connections (0 disables):
+ The multilateration client can return the calculated aircraft positions in an extended version
+ of the Basestation format. This extended version include the number of stations used to find
+ the position, and the geometric dilution of precision. Usually only interesting if you arew
+ processing the data yourself (standard clients will not understand the extended format).
+Type: string
+Default: 0
 
 Template: mlat-client/extra-args
 Description: Extra arguments to pass to mlat-client:
