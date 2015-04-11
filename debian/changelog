@@ -1,6 +1,7 @@
 mlat-client (0.1.6~dev) UNRELEASED; urgency=medium
 
   * Raise better exceptions on input error to try to diagnose Radarcape problems.
+  * Handle (and skip) the mystery '4' message that Radarcape systems generate.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 11 Apr 2015 19:35:25 +0100
 
