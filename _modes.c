@@ -191,7 +191,7 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
         int i;
 
         if (p[0] != 0x1a) {
-            PyErr_SetString(PyExc_ValueError, "Lost sync with input stream: expected a 0x1A marker but it was not there");
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected a 0x1A marker at offset %d but found 0x%02x instead", (int) ((void*)p-buffer.buf), (int)p[0]);
             goto out;
         }
 
@@ -200,7 +200,7 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
         case '2': message_len = 7; break;
         case '3': message_len = 14; break;
         default:
-            PyErr_SetString(PyExc_ValueError, "Lost sync with input stream: unexpected message type after 0x1A marker");
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected message type 0x%02x after 0x1A marker at offset %d", (int)p[1], (int) ((void*)p-buffer.buf));
             goto out;
         }
 

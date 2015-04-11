@@ -1,3 +1,9 @@
+mlat-client (0.1.6~dev) UNRELEASED; urgency=medium
+
+  * Raise better exceptions on input error to try to diagnose Radarcape problems.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 11 Apr 2015 19:35:25 +0100
+
 mlat-client (0.1.5) unstable; urgency=medium
 
   * Fix exception logging.
