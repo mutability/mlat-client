@@ -856,6 +856,7 @@ class Coordinator:
         if ac.messages < 10: return
         if ac.reported and not ac.requested: return
         if message.altitude is None: return    # need an altitude
+        if message.nuc < 6: return             # need NUCp >= 6
 
         if message.even_cpr:
             ac.last_position_timestamp = message.timestamp
