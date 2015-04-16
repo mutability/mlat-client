@@ -32,6 +32,7 @@ typedef struct {
     unsigned int signal;
 
     unsigned int df;
+    unsigned int nuc;
     char even_cpr;
     char odd_cpr;
     char valid;
@@ -291,6 +292,7 @@ static PyMemberDef modesmessageMembers[] = {
     { "timestamp", T_ULONGLONG, offsetof(modesmessage, timestamp), READONLY, "12MHz timestamp" },
     { "signal",    T_UINT,      offsetof(modesmessage, signal),    READONLY, "signal level" },
     { "df",        T_UINT,      offsetof(modesmessage, df),        READONLY, "downlink format" },
+    { "nuc",       T_UINT,      offsetof(modesmessage, nuc),       READONLY, "NUCp value" },
     { "even_cpr",  T_BOOL,      offsetof(modesmessage, even_cpr),  READONLY, "CPR even-format flag" },
     { "odd_cpr",   T_BOOL,      offsetof(modesmessage, odd_cpr),   READONLY, "CPR odd-format flag" },
     { "valid",     T_BOOL,      offsetof(modesmessage, valid),     READONLY, "Does the message look OK?" },
@@ -374,6 +376,7 @@ static PyObject *modesmessage_new(PyTypeObject *type, PyObject *args, PyObject *
     self->timestamp = 0;
     self->signal = 0;
     self->df = 0;
+    self->nuc = 0;
     self->even_cpr = self->odd_cpr = 0;
     self->valid = 0;
     Py_INCREF(Py_None); self->crc = Py_None;
@@ -602,7 +605,14 @@ static int modesmessage_decode(modesmessage *self)
             Py_XDECREF(self->altitude); self->altitude = (Py_INCREF(Py_None), Py_None);
 
             metype = self->data[4] >> 3;
-            if ((metype >= 9 && metype <= 18) || (metype >= 20 && metype <= 22)) {
+            if ((metype >= 9 && metype <= 18) || (metype >= 20 && metype < 22)) {
+                if (metype == 22)
+                    self->nuc = 0;
+                else if (metype <= 18)
+                    self->nuc = 18 - metype;
+                else
+                    self->nuc = 29 - metype;
+
                 if (self->data[6] & 0x04)
                     self->odd_cpr = 1;
                 else
