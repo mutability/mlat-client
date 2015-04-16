@@ -714,14 +714,12 @@ class Coordinator:
             if handler: handler(message)
 
     def start_sending(self, icao_list):
-        #log('Server requests traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = True
         self.requested_traffic.update(icao_list)
 
     def stop_sending(self, icao_list):
-        #log('Server stops traffic for {0} aircraft', len(icao_list))
         for icao in icao_list:
             ac = self.aircraft.get(icao)
             if ac: ac.requested = False
@@ -758,25 +756,15 @@ class Coordinator:
             self.newly_seen.clear()
             
     def expire(self):
-        reported_count = requested_count = discarded_count = 0
         discarded = []
         for ac in self.aircraft.values():
             if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
-                discarded_count += 1
                 if ac.reported:
                     discarded.append(ac.icao)
                 del self.aircraft[ac.icao]
-            else:
-                if ac.reported:
-                    reported_count += 1
-                if ac.requested:
-                    requested_count += 1
 
         if discarded:
             self.server.send_lost(discarded)
-
-        #log('Expired {0} aircraft, {1} remaining', discarded_count, len(self.aircraft))
-        #log('Sending traffic for {0}/{1} aircraft, server requested {2} aircraft', requested_count, reported_count, len(self.requested_traffic))
 
     def periodic_stats(self, now):
         global global_stats
