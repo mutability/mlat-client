@@ -49,6 +49,7 @@ class Stats:
         self.start = now
         self.server_tx_bytes = 0
         self.server_rx_bytes = 0
+        self.server_udp_bytes = 0
         self.beast_rx_bytes = 0
         self.beast_rx_messages = 0
         self.mlat_positions = 0
@@ -311,13 +312,28 @@ class ServerConnection(ReconnectingConnection):
     reconnect_interval = 30.0
     heartbeat_interval = 120.0
 
-    def __init__(self, host, port, handshake_data, offer_zlib, return_results):
+    TYPE_SYNC = 1
+    TYPE_MLAT_SHORT = 2
+    TYPE_MLAT_LONG = 3
+
+    STRUCT_HEADER = struct.Struct(">IQ")
+    STRUCT_SYNC = struct.Struct(">Bii14s14s")
+    STRUCT_MLAT_SHORT = struct.Struct(">Bi7s")
+    STRUCT_MLAT_LONG = struct.Struct(">Bi14s")
+
+    def __init__(self, host, port, handshake_data, offer_zlib, offer_udp, return_results):
         ReconnectingConnection.__init__(self, host, port)
         self.handshake_data = handshake_data
         self.offer_zlib = offer_zlib
+        self.offer_udp = offer_udp
         self.return_results = return_results
         self.coordinator = None
         self.selective_traffic = False
+
+        self.udp_sock = None
+        self.udp_buf = bytearray(1500)
+        self.udp_time = None
+        self.udp_next = self.STRUCT_HEADER.size
 
     def reset_connection(self):
         self.readbuf = ''
@@ -326,6 +342,12 @@ class ServerConnection(ReconnectingConnection):
         self.fill_writebuf = None
         self.handle_server_line = None
         self.server_heartbeat_at = None
+
+        if self.udp_sock:
+           self.udp_sock.close()
+           self.udp_sock = None
+           self.udp_time = None
+           self.udp_next = self.STRUCT_HEADER.size
 
     def lost_connection(self):
         self.coordinator.server_disconnected()
@@ -384,14 +406,59 @@ class ServerConnection(ReconnectingConnection):
         #log('Send: {0}', o)
         self.linebuf.append(json.dumps(o, separators=(',',':')))
 
-    def send_mlat(self, message):
+    #
+    # TCP transport
+    #
+
+    def send_tcp_mlat(self, message):
         self.linebuf.append('{{"mlat":{{"t":{0},"m":"{1}"}}}}'.format(message.timestamp, str(message)))
 
-    def send_mlat_and_alt(self, message, altitude):
+    def send_tcp_mlat_and_alt(self, message, altitude):
         self.linebuf.append('{{"mlat":{{"t":{0},"m":"{1}","a":{2}}}}}'.format(message.timestamp, str(message), altitude))
 
-    def send_sync(self, em, om):
+    def send_tcp_sync(self, em, om):
         self.linebuf.append('{{"sync":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(em.timestamp, str(em), om.timestamp, str(om)))
+
+    #
+    # UDP transport
+    #
+
+    def send_udp_mlat(self, message, altitude=None):
+        # nb: altitude is ignored!
+
+        if self.udp_time is None:
+            self.udp_time = message.timestamp
+
+        if len(message) == 7:
+            self.STRUCT_MLAT_SHORT.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_SHORT, message.timestamp - self.udp_time, str(buffer(message)))
+            self.udp_next += self.STRUCT_MLAT_SHORT.size
+
+        else:
+            self.STRUCT_MLAT_LONG.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_LONG, message.timestamp - self.udp_time, str(buffer(message)))
+            self.udp_next += self.STRUCT_MLAT_LONG.size
+
+        if self.udp_next > 1200:
+            self.flush_udp()
+
+    def send_udp_sync(self, em, om):
+        if self.udp_time is None:
+            self.udp_time = min(em.timestamp, om.timestamp)
+
+        self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, em.timestamp - self.udp_time, om.timestamp - self.udp_time, str(buffer(em)), str(buffer(om)))
+        self.udp_next += self.STRUCT_SYNC.size
+
+        if self.udp_next > 1200:
+            self.flush_udp()
+
+    def flush_udp(self):
+        self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_time)
+        try:
+            self.udp_sock.send(buffer(self.udp_buf, 0, self.udp_next))
+        except socket.error:
+            pass
+        global_stats.server_udp_bytes += self.udp_next
+        self.udp_next = self.STRUCT_HEADER.size
+        self.udp_time = None
 
     def send_seen(self, aclist):
         self.send_json({'seen': ['{0:06x}'.format(icao) for icao in aclist]})
@@ -407,13 +474,21 @@ class ServerConnection(ReconnectingConnection):
         if self.offer_zlib:
             compress_methods.append('zlib')
 
-        handshake_msg = { 'version' : 2, 'compress' : compress_methods, 'selective_traffic' : True, 'heartbeat' : True, 'return_results' : self.return_results }
+        handshake_msg = { 'version': 2,
+                          'compress': compress_methods,
+                          'selective_traffic': True,
+                          'heartbeat': True,
+                          'return_results': self.return_results,
+                          'udp_transport': self.offer_udp }
         handshake_msg.update(self.handshake_data)
         self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
         self.handle_server_line = self.handle_handshake_response
 
     def heartbeat(self, now):
         ReconnectingConnection.heartbeat(self,now)
+
+        if self.udp_time is not None:
+            self.flush_udp()
 
         if self.server_heartbeat_at is not None and self.server_heartbeat_at < now:
             self.server_heartbeat_at = now + self.heartbeat_interval
@@ -465,10 +540,30 @@ class ServerConnection(ReconnectingConnection):
         if response.get('heartbeat',False):
             self.server_heartbeat_at = time.time() + self.heartbeat_interval
 
+        if 'udp_transport' in response:
+            host, port, key = response['udp_transport']
+            if not host:
+                host = self.host
+
+            self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            log("UDP: sending to {0} {1}", host, port)
+            self.udp_sock.connect((host, port))
+            self.udp_key = key
+            self.send_mlat = self.send_udp_mlat
+            self.send_mlat_and_alt = self.send_udp_mlat
+            self.send_sync = self.send_udp_sync
+        else:
+            self.udp_sock = None
+            self.udp_key = None
+            self.send_mlat = self.send_tcp_mlat
+            self.send_mlat_and_alt = self.send_tcp_mlat_and_alt
+            self.send_sync = self.send_tcp_sync
+
         log('Handshake complete.')
         log('  Compression:       {0}', compress)
         log('  Selective traffic: {0}', self.selective_traffic and 'enabled' or 'disabled')
         log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
+        log('  UDP transport:     {0}', self.udp_sock and 'enabled' or 'disabled')
         #log('  Return traffic:    {0}', response.get('return_traffic',False) and 'enabled' or 'disabled')
 
         self.state = 'ready'
@@ -549,7 +644,7 @@ class Coordinator:
         try:
             self.server.reconnect()
 
-            next_heartbeat = time.time() + 1.0
+            next_heartbeat = time.time() + 0.5
             while True:
                 # maybe there are no active sockets and
                 # we're just waiting on a timeout
@@ -560,7 +655,7 @@ class Coordinator:
 
                 now = time.time()
                 if now >= next_heartbeat:
-                    next_heartbeat = now + 1.0
+                    next_heartbeat = now + 0.5
                     self.heartbeat(now)
 
         finally:
@@ -688,7 +783,7 @@ class Coordinator:
 
         elapsed = now - global_stats.start
         log('Receiver: {0}; {1:6.1f} msg/s received     {2:4.1f}kB/s from receiver', self.beast.state, global_stats.beast_rx_messages / elapsed, global_stats.beast_rx_bytes / elapsed / 1000.0)
-        log('Server:   {0}; {1:6.1f} kB/s from server   {2:4.1f}kB/s to server', self.server.state, global_stats.server_rx_bytes / elapsed / 1000.0, global_stats.server_tx_bytes / elapsed / 1000.0)
+        log('Server:   {0}; {1:6.1f} kB/s from server   {2:4.1f}kB/s TCP to server  {3:4.1f}kB/s UDP to server', self.server.state, global_stats.server_rx_bytes / elapsed / 1000.0, global_stats.server_tx_bytes / elapsed / 1000.0, global_stats.server_udp_bytes / elapsed / 1000.0)
         log('Aircraft: {0} known, {1} requested by server', len(self.aircraft), len(self.requested_traffic))
         if self.server.return_results:
             log('Results:  {0:3.1f} positions/minute', global_stats.mlat_positions / elapsed * 60.0)
@@ -882,6 +977,11 @@ def main():
                         help="Don't offer to use zlib compression to the multilateration server",
                         action='store_false',
                         default=True)
+    parser.add_argument('--no-udp',
+                        dest='udp',
+                        help="Don't offer to use UDP transport for sync/mlat messages",
+                        action='store_false',
+                        default=True)
     parser.add_argument('--random-drop',
                         type=percentage,
                         help="Drop some percentage of messages",
@@ -903,6 +1003,7 @@ def main():
                                               'user':args.user,
                                               'random_drop':args.random_drop},
                               offer_zlib=args.compress,
+                              offer_udp=args.udp,
                               return_results=(len(outputs) > 0))
 
     coordinator = Coordinator(beast = beast, server = server, outputs = outputs, random_drop=args.random_drop)
