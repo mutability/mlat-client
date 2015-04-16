@@ -466,6 +466,10 @@ class ServerConnection(ReconnectingConnection):
     def send_lost(self, aclist):
         self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
+    def send_rate_report(self, report):
+        r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k,v in report.items()])
+        self.send_json({'rate_report': r2})
+
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
         self.state = 'handshaking'
@@ -607,9 +611,13 @@ class Aircraft:
         self.odd_message = None
         self.reported = False
         self.requested = True
+        self.measurement_start = None
+        self.rate_measurement_start = 0
+        self.recent_adsb_positions = 0
 
 class Coordinator:
     report_interval = 10.0
+    rate_report_interval = 30.0
     expiry_interval = 30.0
     stats_interval = 900.0
 
@@ -679,6 +687,7 @@ class Coordinator:
         self.newly_seen = set()
         self.aircraft = {}
         self.next_report = time.time() + self.report_interval
+        self.next_rate_report = time.time() + self.rate_report_interval
         self.next_expiry = time.time() + self.expiry_interval
         if self.beast.state != 'ready':
             self.beast.reconnect()
@@ -686,6 +695,7 @@ class Coordinator:
     def server_disconnected(self):
         self.beast.disconnect('Lost connection to multilateration server, no need for input data')
         self.next_report = None
+        self.next_rate_report = None
         self.next_expiry = None
 
     def input_received_messages(self, messages):
@@ -735,6 +745,10 @@ class Coordinator:
             self.next_report = now + self.report_interval
             self.send_aircraft_report()
 
+        if self.next_rate_report and now >= self.next_rate_report:
+            self.next_rate_report = now + self.rate_report_interval
+            self.send_rate_report()
+
         if self.next_expiry and now >= self.next_expiry:
             self.next_expiry = now + self.expiry_interval
             self.expire()
@@ -754,6 +768,21 @@ class Coordinator:
             #log('Telling server about {0} new aircraft', len(self.newly_seen))
             self.server.send_seen(self.newly_seen)
             self.newly_seen.clear()
+
+    def send_rate_report(self):
+        # report ADS-B position rate stats
+        rate_report = {}
+        for ac in self.aircraft.values():
+            interval = (self.last_rcv_timestamp - ac.rate_measurement_start) / 12e6
+            if interval > 0:
+                rate = 1.0 * ac.recent_adsb_positions / interval
+                ac.rate_measurement_start = self.last_rcv_timestamp
+                ac.recent_adsb_positions = 0
+                if rate > 0:
+                    rate_report[ac.icao] = rate
+
+        if rate_report:
+            self.server.send_rate_report(rate_report)
             
     def expire(self):
         discarded = []
@@ -823,6 +852,7 @@ class Coordinator:
             ac.requested = (message.address in self.requested_traffic)
             ac.messages += 1
             ac.last_message_timestamp = message.timestamp
+            ac.rate_measurement_start = message.timestamp
             self.aircraft[message.address] = ac
             return # will need some more messages..
 
@@ -846,7 +876,8 @@ class Coordinator:
             ac = Aircraft(message.address)
             ac.requested = (message.address in self.requested_traffic)
             ac.messages += 1
-            ac.last_message_timestamp = ac.last_position_timestamp = message.timestamp
+            ac.last_message_timestamp = message.timestamp
+            ac.rate_measurement_start = message.timestamp
             self.aircraft[message.address] = ac
             return # wait for more messages
 
@@ -854,16 +885,17 @@ class Coordinator:
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return
-        if ac.reported and not ac.requested: return
         if message.altitude is None: return    # need an altitude
         if message.nuc < 6: return             # need NUCp >= 6
 
         if message.even_cpr:
             ac.last_position_timestamp = message.timestamp
             ac.even_message = message
+            ac.recent_adsb_positions += 1
         elif message.odd_cpr:
             ac.last_position_timestamp = message.timestamp
             ac.odd_message = message
+            ac.recent_adsb_positions += 1
         else:
             return # not a position ES message
 
@@ -873,6 +905,9 @@ class Coordinator:
         # this is a useful reference message pair
         if not ac.reported:
             self.report_aircraft(ac)
+            return
+
+        if not ac.requested:
             return
 
         self.server.send_sync(ac.even_message, ac.odd_message)
