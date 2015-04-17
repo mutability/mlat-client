@@ -329,6 +329,7 @@ class ServerConnection(ReconnectingConnection):
         self.return_results = return_results
         self.coordinator = None
         self.selective_traffic = False
+        self.rate_reports = False
 
         self.udp_sock = None
         self.udp_buf = bytearray(1500)
@@ -467,8 +468,9 @@ class ServerConnection(ReconnectingConnection):
         self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def send_rate_report(self, report):
-        r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k,v in report.items()])
-        self.send_json({'rate_report': r2})
+        if self.rate_reports:
+            r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k,v in report.items()])
+            self.send_json({'rate_report': r2})
 
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
@@ -563,11 +565,14 @@ class ServerConnection(ReconnectingConnection):
             self.send_mlat_and_alt = self.send_tcp_mlat_and_alt
             self.send_sync = self.send_tcp_sync
 
+        self.rate_reports = response.get('rate_reports', False)
+
         log('Handshake complete.')
         log('  Compression:       {0}', compress)
         log('  Selective traffic: {0}', self.selective_traffic and 'enabled' or 'disabled')
         log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
         log('  UDP transport:     {0}', self.udp_sock and 'enabled' or 'disabled')
+        log('  Rate reports:      {0}', self.rate_reports and 'enabled' or 'disabled')
         #log('  Return traffic:    {0}', response.get('return_traffic',False) and 'enabled' or 'disabled')
 
         self.state = 'ready'
