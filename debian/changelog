@@ -2,6 +2,14 @@ mlat-client (0.1.6~dev) UNRELEASED; urgency=medium
 
   * Raise better exceptions on input error to try to diagnose Radarcape problems.
   * Handle (and skip) the mystery '4' message that Radarcape systems generate.
+  * Add --byteswap-timestamp for dealing with dump1090s that (incorrectly)
+    generate little-endian timestamp values.
+  * Use the normal reconnect delay when reconnecting after a timestamp problem is
+    seen.
+  * Don't forward sync messages with NUC<6.
+  * Support UDP transport of mlat/sync messages if supported by the server. Can
+    be disabled with --no-udp.
+  * Support ADS-B position rate reports if supported by the server.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 11 Apr 2015 19:35:25 +0100
 
