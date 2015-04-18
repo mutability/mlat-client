@@ -1,4 +1,4 @@
-mlat-client (0.1.6~dev) unstable; urgency=medium
+mlat-client (0.1.6) unstable; urgency=medium
 
   * Raise better exceptions on input error to try to diagnose Radarcape problems.
   * Handle (and skip) the mystery '4' message that Radarcape systems generate.
