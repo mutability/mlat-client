@@ -1,4 +1,4 @@
-mlat-client (0.1.6~dev) UNRELEASED; urgency=medium
+mlat-client (0.1.6~dev) unstable; urgency=medium
 
   * Raise better exceptions on input error to try to diagnose Radarcape problems.
   * Handle (and skip) the mystery '4' message that Radarcape systems generate.
@@ -6,12 +6,12 @@ mlat-client (0.1.6~dev) UNRELEASED; urgency=medium
     generate little-endian timestamp values.
   * Use the normal reconnect delay when reconnecting after a timestamp problem is
     seen.
-  * Don't forward sync messages with NUC<6.
-  * Support UDP transport of mlat/sync messages if supported by the server. Can
+  * Don't forward DF17 sync messages with NUC<6.
+  * Use UDP transport for mlat/sync messages if requested by the server. Can
     be disabled with --no-udp.
-  * Support ADS-B position rate reports if supported by the server.
+  * Send ADS-B position rate reports if requested by the server.
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 11 Apr 2015 19:35:25 +0100
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 18 Apr 2015 09:31:50 +0100
 
 mlat-client (0.1.5) unstable; urgency=medium
 
