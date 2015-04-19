@@ -259,11 +259,10 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 class BeastConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
-    def __init__(self, host, port, byteswap_timestamp):
+    def __init__(self, host, port):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
-        self.byteswap_timestamp = byteswap_timestamp
 
     def reset_connection(self):
         self.readbuf = bytearray()
@@ -300,7 +299,7 @@ class BeastConnection(ReconnectingConnection):
         self.readbuf += moredata
         global_stats.beast_rx_bytes += len(moredata)
             
-        consumed,messages = _modes.packetize_beast_input(self.readbuf, self.byteswap_timestamp)
+        consumed,messages = _modes.packetize_beast_input(self.readbuf)
         if consumed: self.readbuf = self.readbuf[consumed:]        
         if len(self.readbuf) > 512:
             raise ParseError('parser broken - buffer not being consumed')
@@ -1017,10 +1016,6 @@ def main():
                         type=percentage,
                         help="Drop some percentage of messages",
                         default=0)
-    parser.add_argument('--byteswap-timestamp',
-                        help='Assume that Beast timestamps have the wrong endianness and should be byteswapped',
-                        action='store_true',
-                        default=False)
 
     args = parser.parse_args()
 
@@ -1030,7 +1025,7 @@ def main():
     if args.sbs_ext_port:
         outputs.append(SBSListener(args.sbs_ext_port,SBSExtendedConnection))
 
-    beast = BeastConnection(host=args.input_host, port=args.input_port, byteswap_timestamp=args.byteswap_timestamp)
+    beast = BeastConnection(host=args.input_host, port=args.input_port)
     server = ServerConnection(host=args.output_host, port=args.output_port,
                               handshake_data={'lat':args.lat,
                                               'lon':args.lon,

@@ -150,22 +150,14 @@ crc_residual(PyObject *self, PyObject *args)
 static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
 {
     Py_buffer buffer;
-    PyObject *byteswap_arg = NULL;
     PyObject *rv = NULL;
     uint8_t *p, *eod;
     int message_count = 0, max_messages = 0;
     PyObject *message_tuple = NULL;
     PyObject **messages = NULL;
-    int byteswap = 0;
 
-    if (!PyArg_ParseTuple(args, "s*|O", &buffer, &byteswap_arg))
+    if (!PyArg_ParseTuple(args, "s*", &buffer))
         return NULL;
-
-    if (byteswap_arg) {
-        byteswap = PyObject_IsTrue(byteswap_arg);
-        if (byteswap < 0)
-            goto out;
-    }
 
     if (buffer.itemsize != 1) {
         PyErr_SetString(PyExc_ValueError, "buffer itemsize is not 1");
@@ -180,6 +172,7 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
     /* allocate the maximum size we might need, given a minimal encoding of:
      *   <1A> <'1'> <6 bytes timestamp> <1 byte signal> <2 bytes message> = 11 bytes total
      */
+    message_count = 0;
     max_messages = buffer.len / 11 + 1;
     messages = calloc(max_messages, sizeof(PyObject*));
     if (!messages) {
@@ -233,42 +226,19 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
             }                                                           \
         } while(0)
 
-        /* timestamp, 6 bytes.
-         *
-         * This _should_ be big-endian, but dump1090 on
-         * big-endian hosts gets it wrong and unnecessarily
-         * byteswaps the valie, producing a little-endian
-         * value on the wire. So we optionally undo that.
-         */
-        if (byteswap) {
-            /* Little endian timestamp */
-            timestamp = *m;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 8;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 16;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 24;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 32;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 40;
-            ADVANCE;
-        } else {
-            /* Big endian timestamp */
-            timestamp = (uint64_t)*m << 40;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 32;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 24;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 16;
-            ADVANCE;
-            timestamp |= (uint64_t)*m << 8;
-            ADVANCE;
-            timestamp |= *m;
-            ADVANCE;
-        }
+        /* timestamp, 6 bytes */
+        timestamp = *m;
+        ADVANCE;
+        timestamp = (timestamp << 8) | *m;
+        ADVANCE;
+        timestamp = (timestamp << 8) | *m;
+        ADVANCE;
+        timestamp = (timestamp << 8) | *m;
+        ADVANCE;
+        timestamp = (timestamp << 8) | *m;
+        ADVANCE;
+        timestamp = (timestamp << 8) | *m;
+        ADVANCE;
 
         /* signal, 1 byte */
         signal = *m;
