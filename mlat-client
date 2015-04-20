@@ -315,9 +315,11 @@ class ServerConnection(ReconnectingConnection):
     TYPE_SYNC = 1
     TYPE_MLAT_SHORT = 2
     TYPE_MLAT_LONG = 3
+    TYPE_SSYNC = 4
 
     STRUCT_HEADER = struct.Struct(">IQ")
     STRUCT_SYNC = struct.Struct(">Bii14s14s")
+    STRUCT_SSYNC = struct.Struct(">Bi14s")
     STRUCT_MLAT_SHORT = struct.Struct(">Bi7s")
     STRUCT_MLAT_LONG = struct.Struct(">Bi14s")
 
@@ -420,6 +422,9 @@ class ServerConnection(ReconnectingConnection):
     def send_tcp_sync(self, em, om):
         self.linebuf.append('{{"sync":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(em.timestamp, str(em), om.timestamp, str(om)))
 
+    def send_tcp_split_sync(self, m):
+        self.linebuf.append('{{"ssync":{{"t":{0},"m":"{1}"}}}}'.format(m.timestamp, str(m)))
+
     #
     # UDP transport
     #
@@ -447,6 +452,16 @@ class ServerConnection(ReconnectingConnection):
 
         self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, em.timestamp - self.udp_time, om.timestamp - self.udp_time, str(buffer(em)), str(buffer(om)))
         self.udp_next += self.STRUCT_SYNC.size
+
+        if self.udp_next > 1200:
+            self.flush_udp()
+
+    def send_udp_split_sync(self, m):
+        if self.udp_time is None:
+            self.udp_time = m.timestamp
+
+        self.STRUCT_SSYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SSYNC, m.timestamp - self.udp_time, str(buffer(m)))
+        self.udp_next += self.STRUCT_SSYNC.size
 
         if self.udp_next > 1200:
             self.flush_udp()
@@ -558,14 +573,17 @@ class ServerConnection(ReconnectingConnection):
             self.send_mlat = self.send_udp_mlat
             self.send_mlat_and_alt = self.send_udp_mlat
             self.send_sync = self.send_udp_sync
+            self.send_split_sync = self.send_udp_split_sync
         else:
             self.udp_sock = None
             self.udp_key = None
             self.send_mlat = self.send_tcp_mlat
             self.send_mlat_and_alt = self.send_tcp_mlat_and_alt
             self.send_sync = self.send_tcp_sync
+            self.send_split_sync = self.send_tcp_split_sync
 
         self.rate_reports = response.get('rate_reports', False)
+        self.split_sync = response.get('split_sync', False)
 
         log('Handshake complete.')
         log('  Compression:       {0}', compress)
@@ -573,11 +591,16 @@ class ServerConnection(ReconnectingConnection):
         log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
         log('  UDP transport:     {0}', self.udp_sock and 'enabled' or 'disabled')
         log('  Rate reports:      {0}', self.rate_reports and 'enabled' or 'disabled')
+        log('  Split sync:        {0}', self.split_sync and 'enabled' or 'disabled')
         #log('  Return traffic:    {0}', response.get('return_traffic',False) and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request
         self.coordinator.server_connected()
+
+        # dummy rate report to indicate we'll be sending them
+        if self.rate_reports:
+            self.send_rate_report({})
 
     def handle_connected_request(self, request):
         #log('Receive: {0}', request)
@@ -621,9 +644,7 @@ class Aircraft:
         self.recent_adsb_positions = 0
 
 class Coordinator:
-    report_interval = 10.0
-    rate_report_interval = 30.0
-    expiry_interval = 30.0
+    report_interval = 30.0
     stats_interval = 900.0
 
     def __init__(self, beast, server, outputs, random_drop):
@@ -647,7 +668,6 @@ class Coordinator:
         self.last_rcv_timestamp = None
 
         self.next_report = None
-        self.next_expiry = None
         self.next_stats = time.time() + self.stats_interval
 
         beast.coordinator = self
@@ -692,8 +712,6 @@ class Coordinator:
         self.newly_seen = set()
         self.aircraft = {}
         self.next_report = time.time() + self.report_interval
-        self.next_rate_report = time.time() + self.rate_report_interval
-        self.next_expiry = time.time() + self.expiry_interval
         if self.beast.state != 'ready':
             self.beast.reconnect()
 
@@ -750,14 +768,8 @@ class Coordinator:
         if self.next_report and now >= self.next_report:
             self.next_report = now + self.report_interval
             self.send_aircraft_report()
-
-        if self.next_rate_report and now >= self.next_rate_report:
-            self.next_rate_report = now + self.rate_report_interval
-            self.send_rate_report()
-
-        if self.next_expiry and now >= self.next_expiry:
-            self.next_expiry = now + self.expiry_interval
             self.expire()
+            self.send_rate_report()
 
         if now >= self.next_stats:
             self.next_stats = now + self.stats_interval
@@ -780,12 +792,11 @@ class Coordinator:
         rate_report = {}
         for ac in self.aircraft.values():
             interval = (self.last_rcv_timestamp - ac.rate_measurement_start) / 12e6
-            if interval > 0:
+            if interval > 0 and self.last_rcv_timestamp - ac.last_position_timestamp < TS(60):
                 rate = 1.0 * ac.recent_adsb_positions / interval
                 ac.rate_measurement_start = self.last_rcv_timestamp
                 ac.recent_adsb_positions = 0
-                if rate > 0:
-                    rate_report[ac.icao] = rate
+                rate_report[ac.icao] = rate
 
         if rate_report:
             self.server.send_rate_report(rate_report)
@@ -820,14 +831,15 @@ class Coordinator:
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return   # wait for more messages
-        if ac.reported and not ac.requested: return
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
-        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # too long since altitude reported
         if not ac.reported:
             self.report_aircraft(ac)
             return
+        if not ac.requested:
+            return
 
         # Candidate for MLAT
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # too long since altitude reported
         self.server.send_mlat_and_alt(message, ac.altitude)
 
     def received_df_misc_alt(self, message):
@@ -842,13 +854,14 @@ class Coordinator:
         ac.altitude = message.altitude
 
         if ac.messages < 10: return   # wait for more messages
-        if ac.reported and not ac.requested: return
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
         if not ac.reported:
             self.report_aircraft(ac)
             return
+        if not ac.requested:
+            return
 
         # Candidate for MLAT
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
     def received_df11(self, message):
@@ -866,14 +879,15 @@ class Coordinator:
         ac.last_message_timestamp = message.timestamp
 
         if ac.messages < 10: return   # wait for more messages
-        if ac.reported and not ac.requested: return
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
-        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # no recent altitude available
         if not ac.reported:
             self.report_aircraft(ac)
             return
+        if not ac.requested:
+            return
 
         # Candidate for MLAT
+        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # no recent altitude available
         self.server.send_mlat_and_alt(message, ac.altitude)
 
     def received_df17(self, message):
@@ -889,34 +903,43 @@ class Coordinator:
 
         ac.messages += 1
         ac.last_message_timestamp = message.timestamp
-
         if ac.messages < 10: return
-        if message.altitude is None: return    # need an altitude
-        if message.nuc < 6: return             # need NUCp >= 6
-
-        if message.even_cpr:
-            ac.last_position_timestamp = message.timestamp
-            ac.even_message = message
-            ac.recent_adsb_positions += 1
-        elif message.odd_cpr:
-            ac.last_position_timestamp = message.timestamp
-            ac.odd_message = message
-            ac.recent_adsb_positions += 1
-        else:
-            return # not a position ES message
-
-        if not ac.even_message or not ac.odd_message: return
-        if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > TS(5): return
-
-        # this is a useful reference message pair
         if not ac.reported:
             self.report_aircraft(ac)
             return
 
-        if not ac.requested:
+        if not message.even_cpr and not message.odd_cpr:
+            # not a position message
             return
 
-        self.server.send_sync(ac.even_message, ac.odd_message)
+        ac.last_position_timestamp = message.timestamp
+
+        if message.altitude is None: return    # need an altitude
+        if message.nuc < 6: return             # need NUCp >= 6
+
+        ac.recent_adsb_positions += 1
+
+        if self.server.split_sync:
+            if not ac.requested:
+                return
+
+            # this is a useful reference message
+            self.server.send_split_sync(message)
+        else:
+            if message.even_cpr:
+                ac.even_message = message
+            else:
+                ac.odd_message = message
+
+            if not ac.requested:
+                return
+            if not ac.even_message or not ac.odd_message:
+                return
+            if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > TS(5):
+                return
+
+            # this is a useful reference message pair
+            self.server.send_sync(ac.even_message, ac.odd_message)
 
     def received_mlat_result(self, timestamp, addr, lat, lon, alt, callsign, squawk, hdop, vdop, tdop, gdop, nstations):
         global_stats.mlat_positions += 1
