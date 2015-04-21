@@ -494,6 +494,7 @@ class ServerConnection(ReconnectingConnection):
         compress_methods = ['none']
         if self.offer_zlib:
             compress_methods.append('zlib')
+            compress_methods.append('zlib2')
 
         handshake_msg = { 'version': 2,
                           'compress': compress_methods,
@@ -503,6 +504,7 @@ class ServerConnection(ReconnectingConnection):
                           'udp_transport': self.offer_udp }
         handshake_msg.update(self.handshake_data)
         self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
+        self.consume_readbuf = self.consume_readbuf_uncompressed
         self.handle_server_line = self.handle_handshake_response
 
     def heartbeat(self, now):
@@ -530,11 +532,32 @@ class ServerConnection(ReconnectingConnection):
 
         self.readbuf += moredata
         global_stats.server_rx_bytes += len(moredata)
+        self.consume_readbuf()
+
+    def consume_readbuf_uncompressed(self):
         lines = self.readbuf.split('\n')
         self.readbuf = lines[-1]
         for line in lines[:-1]:
             self.handle_server_line(json.loads(line))
-    
+
+    def consume_readbuf_zlib(self):
+        i = 0
+        while i + 2 < len(self.readbuf):
+            hlen, = struct.unpack_from('!H', self.readbuf, i)
+            end = i + 2 + hlen
+            if end > len(self.readbuf):
+                return
+
+            packet = self.readbuf[i + 2:end] + '\x00\x00\xff\xff'
+            linebuf = self.decompressor.decompress(packet)
+            lines = linebuf.split('\n')
+            for line in lines[:-1]:
+                self.handle_server_line(json.loads(line))
+
+            i = end
+
+        self.readbuf = self.readbuf[i:]
+
     def handle_handshake_response(self, response):
         if 'reconnect_in' in response:
             self.reconnect_interval = response['reconnect_in']
@@ -551,9 +574,16 @@ class ServerConnection(ReconnectingConnection):
         compress = response.get('compress', 'none')
         if response['compress'] == 'none':
             self.fill_writebuf = self.fill_uncompressed
+            self.consume_readbuf = self.consume_readbuf_uncompresssed
         elif response['compress'] == 'zlib' and self.offer_zlib:
             self.compressor = zlib.compressobj(1)
             self.fill_writebuf = self.fill_zlib
+            self.consume_readbuf = self.consume_readbuf_uncompresssed
+        elif response['compress'] == 'zlib2' and self.offer_zlib:
+            self.compressor = zlib.compressobj(1)
+            self.decompressor = zlib.decompressobj()
+            self.fill_writebuf = self.fill_zlib
+            self.consume_readbuf = self.consume_readbuf_zlib
         else:
             raise IOError('Server response asked for a compression method {0}, which we do not support'.format(response['compress']))
 
