@@ -515,7 +515,7 @@ class ServerConnection(ReconnectingConnection):
 
         if self.server_heartbeat_at is not None and self.server_heartbeat_at < now:
             self.server_heartbeat_at = now + self.heartbeat_interval
-            self.send_json({'heartbeat': round(now,1)})
+            self.send_json({'heartbeat': {'client_time': round(now, 3)}})
 
     def handle_read(self):
         try:
