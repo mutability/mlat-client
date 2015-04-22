@@ -317,7 +317,7 @@ class ServerConnection(ReconnectingConnection):
     TYPE_MLAT_LONG = 3
     TYPE_SSYNC = 4
 
-    STRUCT_HEADER = struct.Struct(">IQ")
+    STRUCT_HEADER = struct.Struct(">IHQ")
     STRUCT_SYNC = struct.Struct(">Bii14s14s")
     STRUCT_SSYNC = struct.Struct(">Bi14s")
     STRUCT_MLAT_SHORT = struct.Struct(">Bi7s")
@@ -337,6 +337,7 @@ class ServerConnection(ReconnectingConnection):
         self.udp_buf = bytearray(1500)
         self.udp_time = None
         self.udp_next = self.STRUCT_HEADER.size
+        self.udp_seq = 0
 
     def reset_connection(self):
         self.readbuf = ''
@@ -467,7 +468,7 @@ class ServerConnection(ReconnectingConnection):
             self.flush_udp()
 
     def flush_udp(self):
-        self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_time)
+        self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_seq, self.udp_time)
         try:
             self.udp_sock.send(buffer(self.udp_buf, 0, self.udp_next))
         except socket.error:
@@ -475,6 +476,7 @@ class ServerConnection(ReconnectingConnection):
         global_stats.server_udp_bytes += self.udp_next
         self.udp_next = self.STRUCT_HEADER.size
         self.udp_time = None
+        self.udp_seq = (self.udp_seq + 1) & 0xffff
 
     def send_seen(self, aclist):
         self.send_json({'seen': ['{0:06x}'.format(icao) for icao in aclist]})
@@ -501,7 +503,7 @@ class ServerConnection(ReconnectingConnection):
                           'selective_traffic': True,
                           'heartbeat': True,
                           'return_results': self.return_results,
-                          'udp_transport': self.offer_udp }
+                          'udp_transport': 2 if self.offer_udp else False }
         handshake_msg.update(self.handshake_data)
         self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
         self.consume_readbuf = self.consume_readbuf_uncompressed
