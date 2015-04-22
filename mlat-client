@@ -678,12 +678,19 @@ class ServerConnection(ReconnectingConnection):
         elif 'result' in request:
             result = request['result']
             ecef = result.get('ecef')
-            if ecef:
+            if ecef is not None:
                 # new format
-                lat, lon, alt = ecef2llh(ecef[0], ecef[1], ecef[2])
-                ecef_cov = result['ecef_cov']
-                error_est = math.sqrt(ecef_cov[0] + ecef[3] + ecef[5])  # diagonal of covariance matrix
-                nstations = results['nstat']
+                lat, lon, alt = ecef2llh(ecef)
+                ecef_cov = result['cov']
+                if ecef_cov:
+                    var_est = ecef_cov[0] + ecef_cov[3] + ecef_cov[5]
+                    if var_est >= 0:
+                        error_est = math.sqrt(var_est)
+                    else:
+                        error_est = -1
+                else:
+                    error_est = -1
+                nstations = result['nd']
                 callsign = None
                 squawk = None
             else:
@@ -697,11 +704,11 @@ class ServerConnection(ReconnectingConnection):
 
             self.coordinator.received_mlat_result(timestamp=result['@'],
                                                   addr=int(result['addr'],16),
-                                                  lat=result['lat'],
-                                                  lon=result['lon'],
-                                                  alt=result['alt'],
-                                                  callsign=result['callsign'],
-                                                  squawk=result['squawk'],
+                                                  lat=lat,
+                                                  lon=lon,
+                                                  alt=alt,
+                                                  callsign=callsign,
+                                                  squawk=squawk,
                                                   error_est=error_est,
                                                   nstations=nstations)
         else:
