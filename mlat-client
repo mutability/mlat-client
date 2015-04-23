@@ -623,11 +623,11 @@ class ServerConnection(ReconnectingConnection):
         compress = response.get('compress', 'none')
         if response['compress'] == 'none':
             self.fill_writebuf = self.fill_uncompressed
-            self.consume_readbuf = self.consume_readbuf_uncompresssed
+            self.consume_readbuf = self.consume_readbuf_uncompressed
         elif response['compress'] == 'zlib' and self.offer_zlib:
             self.compressor = zlib.compressobj(1)
             self.fill_writebuf = self.fill_zlib
-            self.consume_readbuf = self.consume_readbuf_uncompresssed
+            self.consume_readbuf = self.consume_readbuf_uncompressed
         elif response['compress'] == 'zlib2' and self.offer_zlib:
             self.compressor = zlib.compressobj(1)
             self.decompressor = zlib.decompressobj()
