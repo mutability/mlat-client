@@ -2,6 +2,7 @@ mlat-client (0.1.8~dev) UNRELEASED; urgency=medium
 
   * Don't explode if there is no covariance matrix in an ECEF result.
   * Log server message parsing failures with a bit more detail.
+  * Fix server->client decompression when a partial packet is received.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Thu, 23 Apr 2015 22:19:52 +0100
 

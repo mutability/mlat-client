@@ -589,7 +589,7 @@ class ServerConnection(ReconnectingConnection):
             hlen, = struct.unpack_from('!H', self.readbuf, i)
             end = i + 2 + hlen
             if end > len(self.readbuf):
-                return
+                break
 
             packet = self.readbuf[i + 2:end] + '\x00\x00\xff\xff'
             linebuf = self.decompressor.decompress(packet)
