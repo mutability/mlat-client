@@ -25,7 +25,6 @@ if __name__ == '__main__':
     print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
 
 import socket, json, time, traceback, asyncore, zlib, argparse, struct, math, errno
-from contextlib import closing
 
 import _modes
 
@@ -336,7 +335,7 @@ class BeastConnection(ReconnectingConnection):
         consumed,messages = _modes.packetize_beast_input(self.readbuf)
         if consumed: self.readbuf = self.readbuf[consumed:]        
         if len(self.readbuf) > 512:
-            raise ParseError('parser broken - buffer not being consumed')
+            raise RuntimeError('parser broken - buffer not being consumed')
 
         if messages:
             global_stats.beast_rx_messages += len(messages)
