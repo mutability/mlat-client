@@ -576,7 +576,13 @@ class ServerConnection(ReconnectingConnection):
         lines = self.readbuf.split('\n')
         self.readbuf = lines[-1]
         for line in lines[:-1]:
-            self.handle_server_line(json.loads(line))
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                log("json parsing problem, line: >>{line}<<", line=line)
+                raise
+
+            self.handle_server_line(msg)
 
     def consume_readbuf_zlib(self):
         i = 0
@@ -590,7 +596,13 @@ class ServerConnection(ReconnectingConnection):
             linebuf = self.decompressor.decompress(packet)
             lines = linebuf.split('\n')
             for line in lines[:-1]:
-                self.handle_server_line(json.loads(line))
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    log("json parsing problem, line: >>{line}<<", line=line)
+                    raise
+
+                self.handle_server_line(msg)
 
             i = end
 
