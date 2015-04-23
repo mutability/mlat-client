@@ -685,7 +685,7 @@ class ServerConnection(ReconnectingConnection):
                 # new format
                 lat, lon, alt = ecef2llh(ecef)
                 alt = alt / 0.3038   # convert meters to feet
-                ecef_cov = result['cov']
+                ecef_cov = result.get('cov')
                 if ecef_cov:
                     var_est = ecef_cov[0] + ecef_cov[3] + ecef_cov[5]
                     if var_est >= 0:
