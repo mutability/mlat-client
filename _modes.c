@@ -273,6 +273,12 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
             uint64_t nanos = timestamp & 0x00003FFFFFFF;
             uint64_t secs = timestamp >> 30;
             timestamp = nanos + secs * 1000000000;
+
+            /* adjust for the timestamp being at the _end_ of the frame;
+             * we don't really care about getting a particular starting point (that's just a
+             * fixed offset), so long as it is _the same in every frame_
+             */
+            timestamp = timestamp - (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
         }
 
         if (! (messages[message_count] = modesmessage_from_buffer(timestamp, signal, message, message_len)) )
