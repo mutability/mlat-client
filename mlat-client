@@ -28,9 +28,6 @@ import socket, json, time, traceback, asyncore, zlib, argparse, struct, math, er
 
 import _modes
 
-def TS(t):
-    return t * 12e6
-
 def log(msg, *args, **kwargs):
     print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
 
@@ -292,10 +289,11 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 class BeastConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
-    def __init__(self, host, port):
+    def __init__(self, host, port, radarcape_gps):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
+        self.radarcape_gps = radarcape_gps
 
     def reset_connection(self):
         self.readbuf = bytearray()
@@ -332,7 +330,7 @@ class BeastConnection(ReconnectingConnection):
         self.readbuf += moredata
         global_stats.beast_rx_bytes += len(moredata)
             
-        consumed,messages = _modes.packetize_beast_input(self.readbuf)
+        consumed,messages = _modes.packetize_beast_input(self.readbuf, self.radarcape_gps)
         if consumed: self.readbuf = self.readbuf[consumed:]        
         if len(self.readbuf) > 512:
             raise RuntimeError('parser broken - buffer not being consumed')
@@ -349,12 +347,16 @@ class ServerConnection(ReconnectingConnection):
     TYPE_MLAT_SHORT = 2
     TYPE_MLAT_LONG = 3
     TYPE_SSYNC = 4
+    TYPE_REBASE = 5
+    TYPE_ABS_SYNC = 6
 
     STRUCT_HEADER = struct.Struct(">IHQ")
     STRUCT_SYNC = struct.Struct(">Bii14s14s")
     STRUCT_SSYNC = struct.Struct(">Bi14s")
     STRUCT_MLAT_SHORT = struct.Struct(">Bi7s")
     STRUCT_MLAT_LONG = struct.Struct(">Bi14s")
+    STRUCT_REBASE = struct.Struct(">BQ")
+    STRUCT_ABS_SYNC = struct.Struct(">BQQ14s14s")
 
     def __init__(self, host, port, handshake_data, offer_zlib, offer_udp, return_results):
         ReconnectingConnection.__init__(self, host, port)
@@ -369,6 +371,7 @@ class ServerConnection(ReconnectingConnection):
         self.udp_sock = None
         self.udp_buf = bytearray(1500)
         self.udp_time = None
+        self.udp_header_time = None
         self.udp_next = self.STRUCT_HEADER.size
         self.udp_seq = 0
 
@@ -384,6 +387,7 @@ class ServerConnection(ReconnectingConnection):
            self.udp_sock.close()
            self.udp_sock = None
            self.udp_time = None
+           self.udp_header_time = None
            self.udp_next = self.STRUCT_HEADER.size
 
     def lost_connection(self):
@@ -467,14 +471,22 @@ class ServerConnection(ReconnectingConnection):
         # nb: altitude is ignored!
 
         if self.udp_time is None:
-            self.udp_time = message.timestamp
+            self.udp_time = self.udp_header_time = message.timestamp
+            delta = 0
+        else:
+            delta = message.timestamp - self.udp_time
+            if abs(delta) > 0x7FFFFFF0:
+                self.udp_time = message.timestamp
+                delta = 0
+                self.STRUCT_REBASE.pack_into(self.udp_buf, self.udp_next, self.TYPE_REBASE, self.udp_time)
+                self.udp_next += self.STRUCT_REBASE.size
 
         if len(message) == 7:
-            self.STRUCT_MLAT_SHORT.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_SHORT, message.timestamp - self.udp_time, str(buffer(message)))
+            self.STRUCT_MLAT_SHORT.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_SHORT, delta, str(buffer(message)))
             self.udp_next += self.STRUCT_MLAT_SHORT.size
 
         else:
-            self.STRUCT_MLAT_LONG.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_LONG, message.timestamp - self.udp_time, str(buffer(message)))
+            self.STRUCT_MLAT_LONG.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_LONG, delta, str(buffer(message)))
             self.udp_next += self.STRUCT_MLAT_LONG.size
 
         if self.udp_next > 1200:
@@ -482,26 +494,48 @@ class ServerConnection(ReconnectingConnection):
 
     def send_udp_sync(self, em, om):
         if self.udp_time is None:
-            self.udp_time = min(em.timestamp, om.timestamp)
+            self.udp_time = self.udp_header_time = (em.timestamp + om.timestamp) / 2
 
-        self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, em.timestamp - self.udp_time, om.timestamp - self.udp_time, str(buffer(em)), str(buffer(om)))
-        self.udp_next += self.STRUCT_SYNC.size
+        if abs(em.timestamp - om.timestamp) > 0xFFFFFFF0:
+            # use abs sync
+            self.STRUCT_ABS_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_ABS_SYNC, em.timestamp, om.timestamp, str(buffer(em)), str(buffer(om)))
+            self.udp_next += self.STRUCT_ABS_SYNC.size
+        else:
+            edelta = em.timestamp - self.udp_time
+            odelta = om.timestamp - self.udp_time
+            if abs(edelta) > 0x7FFFFFF0 or abs(odelta) > 0x7FFFFFF0:
+                self.udp_time = (em.timestamp + om.timestamp) / 2
+                self.STRUCT_REBASE.pack_into(self.udp_buf, self.udp_next, self.TYPE_REBASE, self.udp_time)
+                self.udp_next += self.STRUCT_REBASE.size
+                edelta = em.timestamp - self.udp_time
+                odelta = om.timestamp - self.udp_time
+
+            self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, edelta, odelta, str(buffer(em)), str(buffer(om)))
+            self.udp_next += self.STRUCT_SYNC.size
 
         if self.udp_next > 1200:
             self.flush_udp()
 
     def send_udp_split_sync(self, m):
         if self.udp_time is None:
-            self.udp_time = m.timestamp
+            self.udp_time = self.udp_header_time = m.timestamp
+            delta = 0
+        else:
+            delta = m.timestamp - self.udp_time
+            if abs(delta) > 0x7FFFFFF0:
+                self.udp_time = m.timestamp
+                delta = 0
+                self.STRUCT_REBASE.pack_into(self.udp_buf, self.udp_next, self.TYPE_REBASE, self.udp_time)
+                self.udp_next += self.STRUCT_REBASE.size
 
-        self.STRUCT_SSYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SSYNC, m.timestamp - self.udp_time, str(buffer(m)))
+        self.STRUCT_SSYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SSYNC, delta, str(buffer(m)))
         self.udp_next += self.STRUCT_SSYNC.size
 
         if self.udp_next > 1200:
             self.flush_udp()
 
     def flush_udp(self):
-        self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_seq, self.udp_time)
+        self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_seq, self.udp_header_time)
         try:
             self.udp_sock.send(buffer(self.udp_buf, 0, self.udp_next))
         except socket.error:
@@ -749,11 +783,13 @@ class Coordinator:
     report_interval = 30.0
     stats_interval = 900.0
 
-    def __init__(self, beast, server, outputs, random_drop):
+    def __init__(self, beast, server, outputs, random_drop, freq, radarcape_gps):
         self.beast = beast
         self.server = server
         self.outputs = outputs
         self.random_drop_cutoff = int(255 * random_drop)
+        self.freq = freq
+        self.radarcape_gps = radarcape_gps
 
         self.aircraft = {}
         self.requested_traffic = set()
@@ -833,13 +869,21 @@ class Coordinator:
                 continue
 
             if message.timestamp < self.last_rcv_timestamp:
-                if (self.last_rcv_timestamp - message.timestamp) > TS(90):
+                if self.radarcape_gps and (message.timestamp < 3600e9) and (self.last_rcv_timestamp > 82800e9):
+                    # probably end of day rollover
+                    log("Radarcape end-of-day GPS timestamp rollover")
+                    # force a server clock reset:
+                    self.server.send_json({'input_disconnected' : 'GPS rollover'})
+                    self.server.send_json({'input_connected' : 'OK'})
+
+                elif (self.last_rcv_timestamp - message.timestamp) > self.freq * 90:
                     log("Very out of range message timestamp seen (last {0:012x}, now {1:012x}). Assuming something is horribly wrong and forcing a reconnect.", self.last_rcv_timestamp, message.timestamp)
                     self.beast.disconnect('Timestamp problems')
                     self.beast.schedule_reconnect()
                     return
 
-                continue
+                else:
+                    continue
 
             self.last_rcv_timestamp = message.timestamp
 
@@ -893,8 +937,8 @@ class Coordinator:
         # report ADS-B position rate stats
         rate_report = {}
         for ac in self.aircraft.values():
-            interval = (self.last_rcv_timestamp - ac.rate_measurement_start) / 12e6
-            if interval > 0 and self.last_rcv_timestamp - ac.last_position_timestamp < TS(60):
+            interval = (self.last_rcv_timestamp - ac.rate_measurement_start) / float(self.freq)
+            if interval > 0 and self.last_rcv_timestamp - ac.last_position_timestamp < 60 * self.freq:
                 rate = 1.0 * ac.recent_adsb_positions / interval
                 ac.rate_measurement_start = self.last_rcv_timestamp
                 ac.recent_adsb_positions = 0
@@ -906,7 +950,7 @@ class Coordinator:
     def expire(self):
         discarded = []
         for ac in self.aircraft.values():
-            if (self.last_rcv_timestamp - ac.last_message_timestamp) > TS(60):
+            if (self.last_rcv_timestamp - ac.last_message_timestamp) > 60 * self.freq:
                 if ac.reported:
                     discarded.append(ac.icao)
                 del self.aircraft[ac.icao]
@@ -940,8 +984,8 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
-        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # too long since altitude reported
+        if message.timestamp - ac.last_position_timestamp < 60 * self.freq: return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > 15 * self.freq: return   # too long since altitude reported
         self.server.send_mlat_and_alt(message, ac.altitude)
 
     def received_df_misc_alt(self, message):
@@ -963,7 +1007,7 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_position_timestamp < 60 * self.freq: return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
     def received_df11(self, message):
@@ -988,8 +1032,8 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if message.timestamp - ac.last_position_timestamp < TS(60): return   # reported position recently, no need for mlat
-        if message.timestamp - ac.last_altitude_timestamp > TS(15): return   # no recent altitude available
+        if message.timestamp - ac.last_position_timestamp < 60 * self.freq: return   # reported position recently, no need for mlat
+        if message.timestamp - ac.last_altitude_timestamp > 15 * self.freq: return   # no recent altitude available
         self.server.send_mlat_and_alt(message, ac.altitude)
 
     def received_df17(self, message):
@@ -1037,7 +1081,7 @@ class Coordinator:
                 return
             if not ac.even_message or not ac.odd_message:
                 return
-            if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > TS(5):
+            if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > 5 * self.freq:
                 return
 
             # this is a useful reference message pair
@@ -1142,6 +1186,19 @@ def main():
                         help="Drop some percentage of messages",
                         default=0)
 
+    clock_data = {
+        # "dump1090" / "beast" / "radarcape_12mhz" are functionally equivalent for the client,
+        # but telling the server the difference lets it apply different parameters for clock
+        # error / max drift
+        'dump1090': (12000000, False),
+        'beast': (12000000, False),
+        'radarcape_12mhz': (12000000, False),
+        'radarcape_gps': (1000000000, True)
+    }
+    parser.add_argument('--clock-type',
+                        help="Sets the input receiver type.",
+                        choices=clock_data.keys(),
+                        default='dump1090')
     args = parser.parse_args()
 
     outputs = []
@@ -1150,18 +1207,21 @@ def main():
     if args.sbs_ext_port:
         outputs.append(SBSListener(args.sbs_ext_port,SBSExtendedConnection))
 
-    beast = BeastConnection(host=args.input_host, port=args.input_port)
+    freq, radarcape_gps = clock_data[args.clock_type]
+
+    beast = BeastConnection(host=args.input_host, port=args.input_port, radarcape_gps=radarcape_gps)
     server = ServerConnection(host=args.output_host, port=args.output_port,
                               handshake_data={'lat':args.lat,
                                               'lon':args.lon,
                                               'alt':args.alt,
                                               'user':args.user,
-                                              'random_drop':args.random_drop},
+                                              'random_drop':args.random_drop,
+                                              'clock_type':args.clock_type},
                               offer_zlib=args.compress,
                               offer_udp=args.udp,
                               return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(beast = beast, server = server, outputs = outputs, random_drop=args.random_drop)
+    coordinator = Coordinator(beast = beast, server = server, outputs = outputs, random_drop=args.random_drop, freq=freq, radarcape_gps=radarcape_gps)
     coordinator.run()
 
 if __name__ == '__main__':

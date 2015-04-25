@@ -155,9 +155,16 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
     int message_count = 0, max_messages = 0;
     PyObject *message_tuple = NULL;
     PyObject **messages = NULL;
+    int radarcape_gps_mode = 0;
+    PyObject *radarcape_arg = NULL;
 
-    if (!PyArg_ParseTuple(args, "s*", &buffer))
+    if (!PyArg_ParseTuple(args, "s*|O", &buffer, &radarcape_arg))
         return NULL;
+
+    if (radarcape_arg) {
+        if ((radarcape_gps_mode = PyObject_IsTrue(radarcape_arg)) < 0)
+            return NULL;
+    }
 
     if (buffer.itemsize != 1) {
         PyErr_SetString(PyExc_ValueError, "buffer itemsize is not 1");
@@ -257,6 +264,15 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
              */
             p = m;
             continue;
+        }
+
+        if (radarcape_gps_mode) {
+            /* adjust timestamp so that it is a contiguous nanoseconds-since-midnight value,
+             * rather than the raw form which skips values once a second
+             */
+            uint64_t nanos = timestamp & 0x00003FFFFFFF;
+            uint64_t secs = timestamp >> 30;
+            timestamp = nanos + secs * 1000000000;
         }
 
         if (! (messages[message_count] = modesmessage_from_buffer(timestamp, signal, message, message_len)) )

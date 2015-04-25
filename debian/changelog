@@ -1,6 +1,6 @@
 mlat-client (0.1.9~dev) UNRELEASED; urgency=medium
 
-  * in development
+  * Support for Radarcape when in GPS timestamp mode.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 25 Apr 2015 11:18:56 +0100
 
