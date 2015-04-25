@@ -1,3 +1,9 @@
+mlat-client (0.1.9~dev) UNRELEASED; urgency=medium
+
+  * in development
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 25 Apr 2015 11:18:56 +0100
+
 mlat-client (0.1.8) unstable; urgency=medium
 
   * Don't explode if there is no covariance matrix in an ECEF result.
