@@ -1199,6 +1199,11 @@ def main():
                         help="Sets the input receiver type.",
                         choices=clock_data.keys(),
                         default='dump1090')
+    parser.add_argument('--privacy',
+                        help="Sets the privacy flag for this receiver. Currently, this removes the receiver location pin from the coverage maps.",
+                        action='store_true',
+                        default=False)
+
     args = parser.parse_args()
 
     outputs = []
@@ -1216,7 +1221,8 @@ def main():
                                               'alt':args.alt,
                                               'user':args.user,
                                               'random_drop':args.random_drop,
-                                              'clock_type':args.clock_type},
+                                              'clock_type':args.clock_type,
+                                              'privacy':args.privacy},
                               offer_zlib=args.compress,
                               offer_udp=args.udp,
                               return_results=(len(outputs) > 0))

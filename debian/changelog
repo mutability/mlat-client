@@ -1,6 +1,7 @@
 mlat-client (0.1.9~dev) UNRELEASED; urgency=medium
 
   * Support for Radarcape when in GPS timestamp mode.
+  * Add --privacy command-line option.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 25 Apr 2015 11:18:56 +0100
 
