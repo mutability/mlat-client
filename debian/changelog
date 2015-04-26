@@ -5,6 +5,7 @@ mlat-client (0.1.10~dev) UNRELEASED; urgency=medium
   * Clean up the Radarcape GPS rollover code.
   * Improvements to options help.
   * Remove --random-drop as it's no longer useful.
+  * Added configuration-script suuport for --input-type.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 26 Apr 2015 20:46:20 +0100
 

@@ -60,6 +60,7 @@ case "$1" in
         subvar run-as-user RUN_AS_USER
         subvar server-user SERVER_USER
         subvar log-file LOGFILE
+        subvar input-type INPUT_TYPE
         subvar input-host INPUT_HOST
         subvar input-port INPUT_PORT
         subvar receiver-lat LAT

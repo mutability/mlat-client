@@ -15,6 +15,9 @@ SERVER_USER=
 # Logfile to log to
 LOGFILE=
 
+# Input receivier type (dump1090, beast, radarcape_12mhz, radarcape_gps, sbs)
+INPUT_TYPE=
+
 # Input host to connect to for Beast-format messages
 INPUT_HOST=
 

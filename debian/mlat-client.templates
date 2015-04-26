@@ -44,9 +44,29 @@ Description: Altitude of receiver, in metres (height above ellipsoid):
 Type: string
 Default:
 
+Template: mlat-client/input-type
+Description: Receiver type: 
+ This setting sets the type of receiver that Mode S messages will
+ be read from.
+ .
+ dump1090:
+  dump1090 (MalcolmRobb or mutability fork), or anything else
+  that can generate Beast-format messages with a 12MHz clock.
+ beast: 
+  The Mode-S Beast.
+ radarcape_gps: 
+  Radarcape with GPS timestamps (preferred).
+ radarcape_12mhz:
+  Radarcape with legacy 12MHz timestamps.
+ sbs:
+  Kinetic Avionics SBS-1/SBS-3 systems.
+Type: select
+Choices: dump1090, beast, radarcape_gps, radarcape_12mhz, sbs
+Default: dump1090
+
 Template: mlat-client/input-host
 Description: Input host for Mode S traffic:
- The multilateration client needs to read Beast-format Mode S messages from a
+ The multilateration client needs to read Mode S messages from a
  receiver such as dump1090. Here you can configure the host that the receiver
  is running on.
 Type: string
@@ -54,9 +74,13 @@ Default: localhost
 
 Template: mlat-client/input-port
 Description: Input port for Mode S traffic:
- The multilateration client needs to read Beast-format Mode S messages from a
+ The multilateration client needs to read Mode S messages from a
  receiver such as dump1090. Here you can configure the port that the receiver
- is listening on. dump1090 will produce the right format on port 30005 by default.
+ is listening on.
+ .
+ For dump1090, you need Beast-format output. This is usually available on port 30005.
+ For Radarcapes, use port 10002.
+ For SBS, use port 30006.
 Type: string
 Default: 30005
 

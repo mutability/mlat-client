@@ -39,10 +39,11 @@ badconfig=0
 [ -z "$LAT" ] && badconfig=1
 [ -z "$LON" ] && badconfig=1
 [ -z "$ALT" ] && badconfig=1
+[ -z "$INPUT_TYPE" ] && INPUT_TYPE=dump1090
 [ -z "$INPUT_HOST" ] && badconfig=1
 [ -z "$INPUT_PORT" ] && badconfig=1
 
-ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-host $INPUT_HOST --input-port $INPUT_PORT"
+ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-type $INPUT_TYPE --input-host $INPUT_HOST --input-port $INPUT_PORT"
 if [ "$SBS_PORT" != "0" ]; then ARGS="$ARGS --sbs-port $SBS_PORT"; fi
 if [ "$SBS_EXT_PORT" != "0" ]; then ARGS="$ARGS --sbs-ext-port $SBS_EXT_PORT"; fi
 ARGS="$ARGS $EXTRA_ARGS"
