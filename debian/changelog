@@ -1,3 +1,13 @@
+mlat-client (0.1.10~dev) UNRELEASED; urgency=medium
+
+  * Rename --clock-type to --input-type.
+  * Add support for SBS "raw socket" inputs (--input-type sbs).
+  * Clean up the Radarcape GPS rollover code.
+  * Improvements to options help.
+  * Remove --random-drop as it's no longer useful.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 26 Apr 2015 20:46:20 +0100
+
 mlat-client (0.1.9) unstable; urgency=medium
 
   * Support for Radarcape when in GPS timestamp mode.

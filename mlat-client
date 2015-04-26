@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-CLIENT_VERSION = "0.1.9"
+CLIENT_VERSION = "0.1.10~dev"
 
 import sys
 
@@ -80,8 +80,8 @@ class Stats:
         self.server_tx_bytes = 0
         self.server_rx_bytes = 0
         self.server_udp_bytes = 0
-        self.beast_rx_bytes = 0
-        self.beast_rx_messages = 0
+        self.receiver_rx_bytes = 0
+        self.receiver_rx_messages = 0
         self.mlat_positions = 0
 
 global_stats = Stats(time.time())
@@ -286,20 +286,97 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     def lost_connection(self):
         pass
 
-class BeastConnection(ReconnectingConnection):
+class ReceiverConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
-    def __init__(self, host, port, radarcape_gps):
+    def __init__(self, host, port, connection_type):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
-        self.radarcape_gps = radarcape_gps
+        if connection_type == 'radarcape':
+            self.packetize = _modes.packetize_radarcape_input
+        elif connection_type == 'beast':
+            self.packetize = _modes.packetize_beast_input
+        elif connection_type == 'sbs':
+            self.packetize = self.find_sbs_stream_start
+            self.sbs_last_read = None
+            self.sbs_last_timestamp = 0
+            self.sbs_upper_timestamp = 0
+        else:
+            raise NotImplementedError("no support for conn_type=" + conn_type)
+
+    def find_sbs_stream_start(self, data):
+        # initially, we might be out of sync with the stream (the Basestation seems
+        # to drop us in the middle of a packet on connecting sometimes)
+        # so throw away data until we see DLE STX
+
+        # look for DLE STX
+        i = data.find('\x10\x02')
+        if i == 0:
+            # DLE STX at the very start of input, great!
+            self.packetize = self.packetize_sbs_input
+            return self.packetize(data)
+
+        while i > 0:
+            # DLE STX not at the very start
+            # check that it's preceeded by a non-DLE
+            if data[i-1] != '\x10':
+                # Success.
+                self.packetize = self.packetize_sbs_input
+                consumed, messages = self.packetize(data[i:])
+                return (consumed + i, messages)
+
+            # DLE DLE STX. Can't assume this is the start of a
+            # packet (the STX could be data following an escaped DLE),
+            # skip it.
+
+            i = data.find('\x10\x02', i+2)
+
+        # no luck this time
+        if len(data) > 512:
+            raise ValueError("Doesn't look like a Basestation input stream - no DLE STX in the first 512 bytes")
+
+        return (0, ())
+
+    def packetize_sbs_input(self, data):
+        # SBS timestamp rolls over frequently: every 2**24 * 50ns = 838,860,800ns (~0.8s)
+        # Stretch that by three more bytes using the system clock.
+
+        consumed, messages = _modes.packetize_sbs_input(data)
+        if not messages:
+            return consumed, messages
+
+        now = time.time()
+        if self.sbs_last_read:
+            t0 = messages[0].timestamp + self.sbs_upper_timestamp
+            error = (now - self.sbs_last_read) - (t0 - self.sbs_last_timestamp) * 50e-9
+            if error > 0.838860800 + 0.419430400:
+                #log('rollover due to delay: timestamps {0:06X}->{1:06X}={2:.9f}s  system {3:.9f}s  error {4:.9f}s',
+                #    self.sbs_last_timestamp, t0, (t0 - self.sbs_last_timestamp) * 50e-9,
+                #    now - self.sbs_last_read,
+                #    error)
+                self.sbs_upper_timestamp += int(round((error - 0.419430400) / 0.838860800)) << 24
+
+        last = self.sbs_last_timestamp
+        for m in messages:
+            t = m.timestamp + self.sbs_upper_timestamp
+            if t < last:
+                # rolled over
+                #log('single rollover {0:012X} {1:012X} {2:012X} {3}', last, t, self.sbs_upper_timestamp, last - t)
+                self.sbs_upper_timestamp += (1 << 24)
+                t += (1 << 24)
+            m.timestamp = last = t
+
+        self.sbs_last_timestamp = last
+        self.sbs_last_read = now
+
+        return consumed, messages
 
     def reset_connection(self):
         self.readbuf = bytearray()
 
     def start_connection(self):
-        log('Beast input connected to {0}:{1}', self.host, self.port)
+        log('Input connected to {0}:{1}', self.host, self.port)
         self.last_data_received = time.time()
         self.state = 'ready'
         self.coordinator.input_connected()
@@ -328,15 +405,15 @@ class BeastConnection(ReconnectingConnection):
 
         self.last_data_received = time.time()
         self.readbuf += moredata
-        global_stats.beast_rx_bytes += len(moredata)
+        global_stats.receiver_rx_bytes += len(moredata)
             
-        consumed,messages = _modes.packetize_beast_input(self.readbuf, self.radarcape_gps)
+        consumed,messages = self.packetize(self.readbuf)
         if consumed: self.readbuf = self.readbuf[consumed:]        
-        if len(self.readbuf) > 512:
+        if len(self.readbuf) > 5120:
             raise RuntimeError('parser broken - buffer not being consumed')
 
         if messages:
-            global_stats.beast_rx_messages += len(messages)
+            global_stats.receiver_rx_messages += len(messages)
             self.coordinator.input_received_messages(messages)
 
 class ServerConnection(ReconnectingConnection):
@@ -783,11 +860,10 @@ class Coordinator:
     report_interval = 30.0
     stats_interval = 900.0
 
-    def __init__(self, beast, server, outputs, random_drop, freq, radarcape_gps):
-        self.beast = beast
+    def __init__(self, receiver, server, outputs, freq, radarcape_gps):
+        self.receiver = receiver
         self.server = server
         self.outputs = outputs
-        self.random_drop_cutoff = int(255 * random_drop)
         self.freq = freq
         self.radarcape_gps = radarcape_gps
 
@@ -808,7 +884,7 @@ class Coordinator:
         self.next_report = None
         self.next_stats = time.time() + self.stats_interval
 
-        beast.coordinator = self
+        receiver.coordinator = self
         server.coordinator = self
 
     def run(self):
@@ -830,7 +906,7 @@ class Coordinator:
                     self.heartbeat(now)
 
         finally:
-            if self.beast.socket: self.beast.disconnect('Client shutting down')
+            if self.receiver.socket: self.receiver.disconnect('Client shutting down')
             if self.server.socket: self.server.disconnect('Client shutting down')
             for o in self.outputs: o.disconnect()
 
@@ -850,36 +926,32 @@ class Coordinator:
         self.newly_seen = set()
         self.aircraft = {}
         self.next_report = time.time() + self.report_interval
-        if self.beast.state != 'ready':
-            self.beast.reconnect()
+        if self.receiver.state != 'ready':
+            self.receiver.reconnect()
 
     def server_disconnected(self):
-        self.beast.disconnect('Lost connection to multilateration server, no need for input data')
+        self.receiver.disconnect('Lost connection to multilateration server, no need for input data')
         self.next_report = None
         self.next_rate_report = None
         self.next_expiry = None
 
     def input_received_messages(self, messages):
         for message in messages:
-            if self.random_drop_cutoff and message[-1] < self.random_drop_cutoff: # last byte, part of the checksum, should be fairly randomly distributed
-                continue
-
             if message.timestamp == 0:
                 # heartbeat etc
                 continue
 
             if message.timestamp < self.last_rcv_timestamp:
-                if self.radarcape_gps and (message.timestamp < 3600e9) and (self.last_rcv_timestamp > 82800e9):
+                if self.radarcape_gps and (message.timestamp < 60e9) and (self.last_rcv_timestamp > 86340e9):
                     # probably end of day rollover
                     log("Radarcape end-of-day GPS timestamp rollover")
                     # force a server clock reset:
-                    self.server.send_json({'input_disconnected' : 'GPS rollover'})
-                    self.server.send_json({'input_connected' : 'OK'})
+                    self.server.send_json({'clock_reset' : 'GPS rollover'})
 
                 elif (self.last_rcv_timestamp - message.timestamp) > self.freq * 90:
                     log("Very out of range message timestamp seen (last {0:012x}, now {1:012x}). Assuming something is horribly wrong and forcing a reconnect.", self.last_rcv_timestamp, message.timestamp)
-                    self.beast.disconnect('Timestamp problems')
-                    self.beast.schedule_reconnect()
+                    self.receiver.disconnect('Timestamp problems')
+                    self.receiver.schedule_reconnect()
                     return
 
                 else:
@@ -906,7 +978,7 @@ class Coordinator:
         self.requested_traffic.difference_update(icao_list)
 
     def heartbeat(self, now):
-        self.beast.heartbeat(now)
+        self.receiver.heartbeat(now)
         self.server.heartbeat(now)
         for o in self.outputs:
             o.heartbeat(now)
@@ -962,11 +1034,20 @@ class Coordinator:
         global global_stats
 
         elapsed = now - global_stats.start
-        log('Receiver: {0}; {1:6.1f} msg/s received     {2:4.1f}kB/s from receiver', self.beast.state, global_stats.beast_rx_messages / elapsed, global_stats.beast_rx_bytes / elapsed / 1000.0)
-        log('Server:   {0}; {1:6.1f} kB/s from server   {2:4.1f}kB/s TCP to server  {3:4.1f}kB/s UDP to server', self.server.state, global_stats.server_rx_bytes / elapsed / 1000.0, global_stats.server_tx_bytes / elapsed / 1000.0, global_stats.server_udp_bytes / elapsed / 1000.0)
-        log('Aircraft: {0} known, {1} requested by server', len(self.aircraft), len(self.requested_traffic))
+        log('Receiver: {0}; {1:6.1f} msg/s received     {2:4.1f}kB/s from receiver',
+            self.receiver.state,
+            global_stats.receiver_rx_messages / elapsed,
+            global_stats.receiver_rx_bytes / elapsed / 1000.0)
+        log('Server:   {0}; {1:6.1f} kB/s from server   {2:4.1f}kB/s TCP to server  {3:4.1f}kB/s UDP to server',
+            self.server.state,
+            global_stats.server_rx_bytes / elapsed / 1000.0,
+            global_stats.server_tx_bytes / elapsed / 1000.0,
+            global_stats.server_udp_bytes / elapsed / 1000.0)
+        log('Aircraft: {0} known, {1} requested by server',
+            len(self.aircraft), len(self.requested_traffic))
         if self.server.return_results:
-            log('Results:  {0:3.1f} positions/minute', global_stats.mlat_positions / elapsed * 60.0)
+            log('Results:  {0:3.1f} positions/minute',
+                global_stats.mlat_positions / elapsed * 60.0)
         global_stats = Stats(now)
 
     def received_df_misc_noalt(self, message):
@@ -1135,74 +1216,86 @@ def main():
             raise argparse.ArgumentTypeError('Percentage %s must be in the range 0 to 100' % s)
         return p / 100.0
 
-    parser = argparse.ArgumentParser(description="Client for multilateration.")
-    parser.add_argument('--lat',
-                        type=latitude,
-                        help="Latitude of the receiver, in decimal degrees",
-                        required=True)
-    parser.add_argument('--lon',
-                        type=longitude,
-                        help="Longitude of the receiver, in decimal degrees",
-                        required=True)
-    parser.add_argument('--alt',
-                        type=altitude,
-                        help="Altitude of the receiver (AMSL). Defaults to metres, but units may specified with a 'ft' or 'm' suffix. (Except if they're negative due to option parser weirdness. Sorry!)",
-                        required=True)
-    parser.add_argument('--user',
-                        help="User information to give to the server. Used to get in touch if there are problems.",
-                        required=True)
-    parser.add_argument('--input-host',
-                        help="Host (IP or hostname) to connect to for Mode S traffic",
-                        required=True)
-    parser.add_argument('--input-port',
-                        help="Port to connect to for Mode S traffic. This should be a port that provides data in the 'Beast' binary format",
-                        type=port,
-                        default=30005)
-    parser.add_argument('--output-host',
-                        help="Host (IP or hostname) of the multilateration server",
-                        default="mlat.mutability.co.uk")
-    parser.add_argument('--output-port',
-                        help="Port of the multilateration server",
-                        type=port,
-                        default=40147)
-    parser.add_argument('--sbs-port',
-                        help="Local port to listen on for connections that will receive SBS-format results",
-                        type=port)
-    parser.add_argument('--sbs-ext-port',
-                        help="Local port to listen on for connections that will receive extended results in a SBS-like format",
-                        type=port)
-    parser.add_argument('--no-compression',
-                        dest='compress',
-                        help="Don't offer to use zlib compression to the multilateration server",
-                        action='store_false',
-                        default=True)
-    parser.add_argument('--no-udp',
-                        dest='udp',
-                        help="Don't offer to use UDP transport for sync/mlat messages",
-                        action='store_false',
-                        default=True)
-    parser.add_argument('--random-drop',
-                        type=percentage,
-                        help="Drop some percentage of messages",
-                        default=0)
+    receiver_types = {
+        # input type -> clock frequency, server clock type, connection type
 
-    clock_data = {
         # "dump1090" / "beast" / "radarcape_12mhz" are functionally equivalent for the client,
         # but telling the server the difference lets it apply different parameters for clock
         # error / max drift
-        'dump1090': (12000000, False),
-        'beast': (12000000, False),
-        'radarcape_12mhz': (12000000, False),
-        'radarcape_gps': (1000000000, True)
+        'dump1090': (12000000, 'dump1090', 'beast'),
+        'beast': (12000000, 'beast', 'beast'),
+        'radarcape_12mhz': (12000000, 'radarcape_12mhz', 'beast'),
+        'radarcape_gps': (1000000000, 'radarcape_gps', 'radarcape'),
+        'sbs': (20000000, 'sbs', 'sbs')
     }
-    parser.add_argument('--clock-type',
+
+    parser = argparse.ArgumentParser(description="Client for multilateration.")
+
+    location = parser.add_argument_group('Receiver location')
+    location.add_argument('--lat',
+                          type=latitude,
+                          help="Latitude of the receiver, in decimal degrees. Required.",
+                          required=True)
+    location.add_argument('--lon',
+                          type=longitude,
+                          help="Longitude of the receiver, in decimal degrees. Required.",
+                          required=True)
+    location.add_argument('--alt',
+                          type=altitude,
+                          help="Altitude of the receiver (AMSL).  Required. Defaults to metres, but units may specified with a 'ft' or 'm' suffix. (Except if they're negative due to option parser weirdness. Sorry!)",
+                          required=True)
+    location.add_argument('--privacy',
+                          help="Sets the privacy flag for this receiver. Currently, this removes the receiver location pin from the coverage maps.",
+                          action='store_true',
+                          default=False)
+
+
+    inputs = parser.add_argument_group('Mode S receiver input connection')
+    inputs.add_argument('--input-type',
                         help="Sets the input receiver type.",
-                        choices=clock_data.keys(),
+                        choices=receiver_types.keys(),
                         default='dump1090')
-    parser.add_argument('--privacy',
-                        help="Sets the privacy flag for this receiver. Currently, this removes the receiver location pin from the coverage maps.",
-                        action='store_true',
-                        default=False)
+    inputs.add_argument('--clock-type',
+                        dest='input_type',
+                        help="Compatibility alias for --input-type.",
+                        choices=receiver_types.keys())
+    inputs.add_argument('--input-host',
+                        help="Host (IP or hostname) to connect to for Mode S traffic.  Required.",
+                        required=True)
+    inputs.add_argument('--input-port',
+                        help="Port to connect to for Mode S traffic. For SBS receivers, use port 30006. For Radarcape receivers, use port 10002.",
+                        type=port,
+                        default=30005)
+
+    outputs = parser.add_argument_group('Multilateration server connection')
+    outputs.add_argument('--user',
+                         help="User information to give to the server. Used to get in touch if there are problems.",
+                         required=True)
+    outputs.add_argument('--output-host',
+                         help="Host (IP or hostname) of the multilateration server",
+                         default="mlat.mutability.co.uk")
+    outputs.add_argument('--output-port',
+                         help="Port of the multilateration server",
+                         type=port,
+                         default=40147)
+    outputs.add_argument('--no-compression',
+                         dest='compress',
+                         help="Don't offer to use zlib compression to the multilateration server",
+                         action='store_false',
+                         default=True)
+    outputs.add_argument('--no-udp',
+                         dest='udp',
+                         help="Don't offer to use UDP transport for sync/mlat messages",
+                         action='store_false',
+                         default=True)
+
+    results = parser.add_argument_group('Results output')
+    results.add_argument('--sbs-port',
+                         help="Local port to listen on for connections that will receive Basestation 'port 30003'-format results.",
+                         type=port)
+    results.add_argument('--sbs-ext-port',
+                         help="Local port to listen on for connections that will receive extended results in a Basestation-like format",
+                         type=port)
 
     args = parser.parse_args()
 
@@ -1212,22 +1305,22 @@ def main():
     if args.sbs_ext_port:
         outputs.append(SBSListener(args.sbs_ext_port,SBSExtendedConnection))
 
-    freq, radarcape_gps = clock_data[args.clock_type]
+    freq, clock_type, conn_type = receiver_types[args.input_type]
 
-    beast = BeastConnection(host=args.input_host, port=args.input_port, radarcape_gps=radarcape_gps)
+    receiver = ReceiverConnection(host=args.input_host, port=args.input_port, connection_type=conn_type)
     server = ServerConnection(host=args.output_host, port=args.output_port,
                               handshake_data={'lat':args.lat,
                                               'lon':args.lon,
                                               'alt':args.alt,
                                               'user':args.user,
-                                              'random_drop':args.random_drop,
-                                              'clock_type':args.clock_type,
+                                              'clock_type':clock_type,
                                               'privacy':args.privacy},
                               offer_zlib=args.compress,
                               offer_udp=args.udp,
                               return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(beast = beast, server = server, outputs = outputs, random_drop=args.random_drop, freq=freq, radarcape_gps=radarcape_gps)
+    coordinator = Coordinator(receiver = receiver, server = server, outputs = outputs, freq=freq,
+                              radarcape_gps = (clock_type == 'radarcape_gps'))
     coordinator.run()
 
 if __name__ == '__main__':

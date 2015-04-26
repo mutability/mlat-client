@@ -67,6 +67,9 @@ static void init_crc_table(void);
 static uint32_t calculate_crc(uint8_t *buf, int len);
 static PyObject *crc_residual(PyObject *self, PyObject *args);
 static PyObject *packetize_beast_input(PyObject *self, PyObject *args);
+static PyObject *packetize_radarcape_input(PyObject *self, PyObject *args);
+static PyObject *packetize_sbs_input(PyObject *self, PyObject *args);
+static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *args, int radarcape_gps_mode);
 
 /********** CRC ****************/
 
@@ -142,12 +145,21 @@ crc_residual(PyObject *self, PyObject *args)
 
 /********** BEAST INPUT **************/
 
-
 /* given an input bytestring, return a tuple (consumed, [(timestamp, signal, bytes), (timestamp, signal, bytes), ...])
  * where 'consumed' is the number of bytes read from input
  * and the list is the messages + metadata extracted from the input
  */
 static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
+{
+    return packetize_beast_or_radarcape_input(self, args, 0);
+}
+
+static PyObject *packetize_radarcape_input(PyObject *self, PyObject *args)
+{
+    return packetize_beast_or_radarcape_input(self, args, 1);
+}
+
+static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *args, int radarcape_gps_mode)
 {
     Py_buffer buffer;
     PyObject *rv = NULL;
@@ -155,16 +167,9 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
     int message_count = 0, max_messages = 0;
     PyObject *message_tuple = NULL;
     PyObject **messages = NULL;
-    int radarcape_gps_mode = 0;
-    PyObject *radarcape_arg = NULL;
 
-    if (!PyArg_ParseTuple(args, "s*|O", &buffer, &radarcape_arg))
+    if (!PyArg_ParseTuple(args, "s*", &buffer))
         return NULL;
-
-    if (radarcape_arg) {
-        if ((radarcape_gps_mode = PyObject_IsTrue(radarcape_arg)) < 0)
-            return NULL;
-    }
 
     if (buffer.itemsize != 1) {
         PyErr_SetString(PyExc_ValueError, "buffer itemsize is not 1");
@@ -267,16 +272,18 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
         }
 
         if (radarcape_gps_mode) {
-            /* adjust timestamp so that it is a contiguous nanoseconds-since-midnight value,
-             * rather than the raw form which skips values once a second
+            /* adjust timestamp so that it is a contiguous nanoseconds-since-
+             * midnight value, rather than the raw form which skips values once
+             * a second
              */
             uint64_t nanos = timestamp & 0x00003FFFFFFF;
             uint64_t secs = timestamp >> 30;
             timestamp = nanos + secs * 1000000000;
 
             /* adjust for the timestamp being at the _end_ of the frame;
-             * we don't really care about getting a particular starting point (that's just a
-             * fixed offset), so long as it is _the same in every frame_
+             * we don't really care about getting a particular starting point
+             * (that's just a fixed offset), so long as it is _the same in
+             * every frame_.
              */
             timestamp = timestamp - (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
         }
@@ -289,7 +296,6 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
     }
 
  nomoredata:
-
     if (! (message_tuple = PyTuple_New(message_count)))
         goto out;
     
@@ -308,10 +314,235 @@ static PyObject *packetize_beast_input(PyObject *self, PyObject *args)
     return rv;
 }
 
+
+/********** SBS INPUT **************/
+
+/*
+ * Some notes on this format, as it is poorly documented by Kinetic:
+ *
+ * The stream can start at an arbitrary point, the first byte might be mid-packet.
+ * You need to look for a DLE STX to synchronize with the stream.
+ * This implementation does that in the Python code to keep this bit simpler; the
+ * C code assumes it is always given bytes starting at the start of a packet.
+ *
+ * You might get arbitrary packet types e.g. AIS interleaved with Mode S messages.
+ * This implementation doesn't try to interpret them at all, it just reads all
+ * data until DLE ETX regardless of type and skips those types it doesn't
+ * understand.
+ *
+ * The Mode S CRC values are not the raw bytes from the message; they are the
+ * residual CRC value after XORing the raw bytes with the calculated CRC over
+ * the body of the message. That is, a DF17 message with a correct CRC will have
+ * zeros in the CRC bytes; a DF11 with correct CRC will have the IID in the CRC
+ * bytes; messages that use Address/Parity will have the address in the CRC bytes.
+ * To recover the original message, calculate the CRC and XOR it back into the CRC
+ * bytes. Andrew Whewell says this is probably controlled by a Basestation setting.
+ *
+ * The timestamps are measured at the _end_ of the frame, not at the start.
+ * As frames are variable length, if you want a timestamp anchored to the
+ * start of the frame (as dump1090 / Beast do), you have to compensate for
+ * the frame length.
+ */
+
+
+/* given an input bytestring, return a tuple (consumed, [(timestamp, signal, bytes), (timestamp, signal, bytes), ...])
+ * where 'consumed' is the number of bytes read from input
+ * and the list is the messages + metadata extracted from the input
+ */
+static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
+{
+    Py_buffer buffer;
+    PyObject *rv = NULL;
+    uint8_t *p, *eod;
+    int message_count = 0, max_messages = 0;
+    PyObject *message_tuple = NULL;
+    PyObject **messages = NULL;
+
+    if (!PyArg_ParseTuple(args, "s*", &buffer))
+        return NULL;
+
+    if (buffer.itemsize != 1) {
+        PyErr_SetString(PyExc_ValueError, "buffer itemsize is not 1");
+        goto out;
+    }
+
+    if (!PyBuffer_IsContiguous(&buffer, 'C')) {
+        PyErr_SetString(PyExc_ValueError, "buffer is not contiguous");
+        goto out;
+    }
+
+    /* allocate the maximum size we might need, given a minimal encoding of:
+     *   <DLE> <STX> <0x09> <n/a> <3 bytes timestamp> <2 bytes message> <DLE> <ETX> <2 bytes CRC> = 13 bytes total
+     */
+    message_count = 0;
+    max_messages = buffer.len / 13 + 1;
+    messages = calloc(max_messages, sizeof(PyObject*));
+    if (!messages) {
+        rv = PyErr_NoMemory();
+        goto out;
+    }
+
+    /* parse messages */
+    p = buffer.buf;
+    eod = buffer.buf + buffer.len;
+    while (p+13 <= eod && message_count < max_messages) {
+        int message_len = -1;
+        uint32_t timestamp;
+        /* largest message we care about is:
+         *  type      1 byte   0x05 = ADS-B
+         *  spare     1 byte
+         *  timestamp 3 bytes
+         *  data      14 bytes
+         *      total 19 bytes
+         */
+        uint8_t data[19];
+        uint8_t *m;
+        int i;
+        uint8_t type;
+
+        if (p[0] != 0x10 || p[1] != 0x02) {
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected DLE STX at offset %d but found 0x%02x 0x%02x instead", (int) ((void*)p-buffer.buf), (int)p[0], (int)p[1]);
+            goto out;
+        }
+
+        /* scan for DLE ETX, copy data */
+        m = p + 2;
+        i = 0;
+        while (m < eod) {
+            if (*m == 0x10) {
+                if ((m+1) >= eod)
+                    goto nomoredata;
+
+                if (m[1] == 0x03) {
+                    /* DLE ETX found */
+                    break;
+                }
+
+                if (m[1] != 0x10) {
+                    PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)m[1]);
+                    goto out;
+                }
+
+                ++m;
+            }
+
+            if (i < 19)
+                data[i++] = *m;
+
+            ++m;
+        }
+
+        /* now pointing at DLE of DLE ETX */
+        m += 2;
+
+        /* first CRC byte */
+        if (m >= eod)
+            goto nomoredata;
+        if (*m++ == 0x10) {
+            if (m >= eod)
+                goto nomoredata;
+            if (m[0] != 0x10) {
+                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)*m);
+                goto out;
+            }
+            ++m;
+        }
+
+        /* second CRC byte */
+        if (m >= eod)
+            goto nomoredata;
+        if (*m++ == 0x10) {
+            if (m >= eod)
+                goto nomoredata;
+            if (m[0] != 0x10) {
+                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)*m);
+                goto out;
+            }
+            ++m;
+        }
+
+        /* try to make sense of the message */
+        type = data[0];
+        switch (type) {
+        case 0x01:
+            /* ADS-B or TIS-B */
+            message_len = 14;
+            break;
+
+        case 0x05:
+            /* Mode S, long */
+            message_len = 14;
+            break;
+
+        case 0x07:
+            /* Mode S, short */
+            message_len = 7;
+            break;
+
+        case 0x09:
+            /* Mode A/C */
+            message_len = 2;
+            break;
+
+        default:
+            /* something else, skip it */
+            break;
+        }
+
+        if (message_len > 0 && (5 + message_len) <= i) {
+            /* regenerate message CRC */
+            if (message_len > 3) {
+                uint32_t crc = calculate_crc(&data[5], message_len);  /* this XORs the resulting CRC with any existing data, which is what we want */
+                data[5 + message_len - 3] = crc >> 16;
+                data[5 + message_len - 2] = crc >> 8;
+                data[5 + message_len - 1] = crc;
+            }
+
+            /* little-endian, apparently */
+            timestamp = (data[4] << 16) | (data[3] << 8) | (data[2]);
+
+            /* Baseless speculation! Let's assume that it's like the Radarcape
+             * and measures at the end of the frame.
+             *
+             * It's easier to add to the timestamp than subtract from it, so
+             * add on enough of an offset so that the timestamps we report are
+             * consistently (start of frame + 112us) regardless of the actual
+             * frame length.
+             */
+            timestamp = timestamp + ((14-message_len) * 160);
+
+            if (! (messages[message_count] = modesmessage_from_buffer(timestamp, 0, &data[5], message_len)))
+                goto out;
+
+            ++message_count;
+        }
+
+        p = m;
+    }
+
+ nomoredata:
+    if (! (message_tuple = PyTuple_New(message_count)))
+        goto out;
+
+    while (--message_count >= 0) {
+        PyTuple_SET_ITEM(message_tuple, message_count, messages[message_count]); /* steals ref */
+    }
+
+    rv = Py_BuildValue("(lN)", (long) ((void*)p - buffer.buf), message_tuple);
+
+ out:
+    while (--message_count >= 0) {
+        Py_DECREF(messages[message_count]);
+    }
+    free(messages);
+    PyBuffer_Release(&buffer);
+    return rv;
+}
+
 /****** MODE S MESSAGES *******/
 
 static PyMemberDef modesmessageMembers[] = {
-    { "timestamp", T_ULONGLONG, offsetof(modesmessage, timestamp), READONLY, "12MHz timestamp" },
+    { "timestamp", T_ULONGLONG, offsetof(modesmessage, timestamp), 0,        "12MHz timestamp" },   /* read/write */
     { "signal",    T_UINT,      offsetof(modesmessage, signal),    READONLY, "signal level" },
     { "df",        T_UINT,      offsetof(modesmessage, df),        READONLY, "downlink format" },
     { "nuc",       T_UINT,      offsetof(modesmessage, nuc),       READONLY, "NUCp value" },
@@ -775,7 +1006,9 @@ static PyObject *modesmessage_str(PyObject *self)
 
 static PyMethodDef methods[] = {
     { "crc_residual", crc_residual, METH_VARARGS, "Calculate a CRC residual over a Mode S message." },
-    { "packetize_beast_input", packetize_beast_input, METH_VARARGS, "Turn a Beast-form bytestream into a series of messages." },
+    { "packetize_beast_input", packetize_beast_input, METH_VARARGS, "Turn Beast-format input into a series of messages." },
+    { "packetize_radarcape_input", packetize_radarcape_input, METH_VARARGS, "Turn input from a Radarcape with GPS timestamps into a series of messages." },
+    { "packetize_sbs_input", packetize_sbs_input, METH_VARARGS, "Turn input from a SBS raw data socket into a series of messages." },
     { NULL, NULL, 0, NULL }
 };
 
