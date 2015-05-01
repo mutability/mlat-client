@@ -1,3 +1,9 @@
+mlat-client (0.1.11~dev) UNRELEASED; urgency=medium
+
+  * SBS support, round two.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Fri, 01 May 2015 23:39:37 +0100
+
 mlat-client (0.1.10) unstable; urgency=medium
 
   * Rename --clock-type to --input-type.

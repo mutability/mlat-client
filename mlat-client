@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-CLIENT_VERSION = "0.1.10"
+CLIENT_VERSION = "0.1.11~dev"
 
 import sys
 
@@ -299,9 +299,10 @@ class ReceiverConnection(ReconnectingConnection):
             self.packetize = _modes.packetize_beast_input
         elif connection_type == 'sbs':
             self.packetize = self.find_sbs_stream_start
-            self.sbs_last_read = None
-            self.sbs_last_timestamp = 0
+            self.sbs_last = 0
             self.sbs_upper_timestamp = 0
+            self.sbs_reference_timestamp = None
+            self.sbs_reference_systime = None
         else:
             raise NotImplementedError("no support for conn_type=" + conn_type)
 
@@ -347,29 +348,33 @@ class ReceiverConnection(ReconnectingConnection):
             return consumed, messages
 
         now = time.time()
-        if self.sbs_last_read:
-            t0 = messages[0].timestamp + self.sbs_upper_timestamp
-            error = (now - self.sbs_last_read) - (t0 - self.sbs_last_timestamp) * 50e-9
-            if error > 0.838860800 + 0.419430400:
-                #log('rollover due to delay: timestamps {0:06X}->{1:06X}={2:.9f}s  system {3:.9f}s  error {4:.9f}s',
-                #    self.sbs_last_timestamp, t0, (t0 - self.sbs_last_timestamp) * 50e-9,
-                #    now - self.sbs_last_read,
-                #    error)
-                self.sbs_upper_timestamp += int(round((error - 0.419430400) / 0.838860800)) << 24
+        last = self.sbs_last
 
-        last = self.sbs_last_timestamp
         for m in messages:
             t = m.timestamp + self.sbs_upper_timestamp
             if t < last:
                 # rolled over
-                #log('single rollover {0:012X} {1:012X} {2:012X} {3}', last, t, self.sbs_upper_timestamp, last - t)
                 self.sbs_upper_timestamp += (1 << 24)
                 t += (1 << 24)
+
             m.timestamp = last = t
 
-        self.sbs_last_timestamp = last
-        self.sbs_last_read = now
+        if self.sbs_reference_systime is None:
+            self.sbs_reference_systime = now
+            self.sbs_reference_timestamp = last
+        else:
+            systime_delta = now - self.sbs_reference_systime
+            timestamp_delta = (last - self.sbs_reference_timestamp) * 50e-9
 
+            if abs(timestamp_delta - systime_delta) > 0.838860800*10:
+                log("SBS timestamp drift: timestamps elapsed {t:.9f}s, system elapsed {s:.9f}s, drift {d:.9f}s",
+                    t=timestamp_delta,
+                    s=systime_delta,
+                    d=systime_delta - timestamp_delta)
+                self.sbs_reference_systime = now
+                self.sbs_reference_timestamp = last
+
+        self.sbs_last = last
         return consumed, messages
 
     def reset_connection(self):
