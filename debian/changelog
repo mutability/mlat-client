@@ -1,8 +1,9 @@
-mlat-client (0.1.11~dev) UNRELEASED; urgency=medium
+mlat-client (0.1.11) unstable; urgency=medium
 
-  * SBS support, round two.
+  * Bugfixes for SBS support.
+  * Entirely clean up UDP state on server disconnect.
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Fri, 01 May 2015 23:39:37 +0100
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 03 May 2015 23:52:01 +0100
 
 mlat-client (0.1.10) unstable; urgency=medium
 
