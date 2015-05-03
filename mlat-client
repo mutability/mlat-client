@@ -225,8 +225,8 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
                 log('Lost connection to {host}:{port}', host=self.host, port=self.port)
 
             self.state = 'disconnected'
-            self.lost_connection()
             self.reset_connection()
+            self.lost_connection()
 
         if not manual_close: self.schedule_reconnect()
 
@@ -449,13 +449,9 @@ class ServerConnection(ReconnectingConnection):
         self.coordinator = None
         self.selective_traffic = False
         self.rate_reports = False
-
         self.udp_sock = None
-        self.udp_buf = bytearray(1500)
-        self.udp_time = None
-        self.udp_header_time = None
-        self.udp_next = self.STRUCT_HEADER.size
-        self.udp_seq = 0
+
+        self.reset_connection()
 
     def reset_connection(self):
         self.readbuf = ''
@@ -467,10 +463,14 @@ class ServerConnection(ReconnectingConnection):
 
         if self.udp_sock:
            self.udp_sock.close()
-           self.udp_sock = None
-           self.udp_time = None
-           self.udp_header_time = None
-           self.udp_next = self.STRUCT_HEADER.size
+
+        self.udp_sock = None
+        self.udp_key = None
+        self.udp_time = None
+        self.udp_header_time = None
+        self.udp_buf = bytearray(1500)
+        self.udp_next = self.STRUCT_HEADER.size
+        self.udp_seq = 0
 
     def lost_connection(self):
         self.coordinator.server_disconnected()
