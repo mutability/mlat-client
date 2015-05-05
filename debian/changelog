@@ -1,3 +1,13 @@
+mlat-client (0.1.12~dev) UNRELEASED; urgency=medium
+
+  * Log client version on startup.
+  * Add an inactivity timeout to server connections.
+    In particular, this should help with connections that silently die
+    during the handshaking phase, where we would otherwise wait forever
+    without writing.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 05 May 2015 22:38:25 +0100
+
 mlat-client (0.1.11) unstable; urgency=medium
 
   * Bugfixes for SBS support.

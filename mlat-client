@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-CLIENT_VERSION = "0.1.11"
+CLIENT_VERSION = "0.1.12~dev"
 
 import sys
 
@@ -424,6 +424,7 @@ class ReceiverConnection(ReconnectingConnection):
 class ServerConnection(ReconnectingConnection):
     reconnect_interval = 30.0
     heartbeat_interval = 120.0
+    inactivity_timeout = 60.0
 
     TYPE_SYNC = 1
     TYPE_MLAT_SHORT = 2
@@ -460,6 +461,7 @@ class ServerConnection(ReconnectingConnection):
         self.fill_writebuf = None
         self.handle_server_line = None
         self.server_heartbeat_at = None
+        self.last_data_received = None
 
         if self.udp_sock:
            self.udp_sock.close()
@@ -641,6 +643,7 @@ class ServerConnection(ReconnectingConnection):
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
         self.state = 'handshaking'
+        self.last_data_received = time.time()
 
         compress_methods = ['none']
         if self.offer_zlib:
@@ -663,6 +666,11 @@ class ServerConnection(ReconnectingConnection):
     def heartbeat(self, now):
         ReconnectingConnection.heartbeat(self,now)
 
+        if self.state in ('ready', 'handshaking') and (now - self.last_data_received) > self.inactivity_timeout:
+            self.disconnect('No data (not even keepalives) received for {0:.0f} seconds'.format(self.inactivity_timeout))
+            self.reconnect()
+            return
+
         if self.udp_time is not None:
             self.flush_udp()
 
@@ -683,6 +691,7 @@ class ServerConnection(ReconnectingConnection):
             self.schedule_reconnect()
             return
 
+        self.last_data_received = time.time()
         self.readbuf += moredata
         global_stats.server_rx_bytes += len(moredata)
         self.consume_readbuf()
@@ -1303,6 +1312,8 @@ def main():
                          type=port)
 
     args = parser.parse_args()
+
+    log("mlat-client {version} starting up", version=CLIENT_VERSION)
 
     outputs = []
     if args.sbs_port:
