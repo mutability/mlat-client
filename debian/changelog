@@ -5,6 +5,7 @@ mlat-client (0.1.12~dev) UNRELEASED; urgency=medium
     In particular, this should help with connections that silently die
     during the handshaking phase, where we would otherwise wait forever
     without writing.
+  * Convert to Python 3.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 05 May 2015 22:38:25 +0100
 

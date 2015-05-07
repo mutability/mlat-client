@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 # -*- python -*-
 
 # Part of mlat-client - an ADS-B multilateration client.
@@ -22,7 +22,7 @@ CLIENT_VERSION = "0.1.12~dev"
 import sys
 
 if __name__ == '__main__':
-    print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
+    print('Hang on while I load everything (takes a few seconds on a Pi)..', file=sys.stderr)
 
 import socket
 import json
@@ -263,7 +263,9 @@ class ReceiverConnection(ReconnectingConnection):
         global_stats.receiver_rx_bytes += len(moredata)
             
         consumed,messages = self.packetize(self.readbuf)
-        if consumed: self.readbuf = self.readbuf[consumed:]        
+        if consumed:
+            del self.readbuf[:consumed]
+
         if len(self.readbuf) > 5120:
             raise RuntimeError('parser broken - buffer not being consumed')
 
@@ -305,8 +307,8 @@ class ServerConnection(ReconnectingConnection):
         self.reset_connection()
 
     def reset_connection(self):
-        self.readbuf = ''
-        self.writebuf = ''
+        self.readbuf = bytearray()
+        self.writebuf = bytearray()
         self.linebuf = []
         self.fill_writebuf = None
         self.handle_server_line = None
@@ -339,7 +341,7 @@ class ServerConnection(ReconnectingConnection):
 
         if self.writebuf:
             sent = self.send(self.writebuf)
-            self.writebuf = self.writebuf[sent:]
+            del self.writebuf[:sent]
             global_stats.server_tx_bytes += sent
             if len(self.writebuf) > 65536:
                 raise IOError('Server write buffer overflow (too much unsent data)')
@@ -347,33 +349,33 @@ class ServerConnection(ReconnectingConnection):
     def fill_uncompressed(self):
         if not self.linebuf: return
         for line in self.linebuf:
-            self.writebuf += line + '\n'
+            self.writebuf += (line + '\n').encode('ascii')
         self.linebuf = []
 
     def fill_zlib(self):
         if not self.linebuf: return
 
-        data = ''
+        data = bytearray()
         pending = False
         for line in self.linebuf:
-            data += self.compressor.compress(line + '\n')
+            data += self.compressor.compress((line + '\n').encode('ascii'))
             pending = True
 
             if len(data) >= 32768:
                 data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
                 assert len(data) < 65536
-                assert data[-4:] == '\x00\x00\xff\xff'
-                data = struct.pack('!H', len(data)-4) + data[:-4]
-                self.writebuf += data
+                assert data[-4:] == b'\x00\x00\xff\xff'
+                self.writebuf += struct.pack('!H', len(data)-4)
+                self.writebuf += data[:-4]
                 data = ''
                 pending = False
 
         if pending:
             data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
             assert len(data) < 65536
-            assert data[-4:] == '\x00\x00\xff\xff'
-            data = struct.pack('!H', len(data)-4) + data[:-4]
-            self.writebuf += data    
+            assert data[-4:] == b'\x00\x00\xff\xff'
+            self.writebuf += struct.pack('!H', len(data)-4)
+            self.writebuf += data[:-4]
 
         self.linebuf = []
 
@@ -416,11 +418,11 @@ class ServerConnection(ReconnectingConnection):
                 self.udp_next += self.STRUCT_REBASE.size
 
         if len(message) == 7:
-            self.STRUCT_MLAT_SHORT.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_SHORT, delta, str(buffer(message)))
+            self.STRUCT_MLAT_SHORT.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_SHORT, delta, bytes(message))
             self.udp_next += self.STRUCT_MLAT_SHORT.size
 
         else:
-            self.STRUCT_MLAT_LONG.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_LONG, delta, str(buffer(message)))
+            self.STRUCT_MLAT_LONG.pack_into(self.udp_buf, self.udp_next, self.TYPE_MLAT_LONG, delta, bytes(message))
             self.udp_next += self.STRUCT_MLAT_LONG.size
 
         if self.udp_next > 1200:
@@ -428,11 +430,12 @@ class ServerConnection(ReconnectingConnection):
 
     def send_udp_sync(self, em, om):
         if self.udp_time is None:
-            self.udp_time = self.udp_header_time = (em.timestamp + om.timestamp) / 2
+            self.udp_time = self.udp_header_time = int((em.timestamp + om.timestamp) / 2)
 
         if abs(em.timestamp - om.timestamp) > 0xFFFFFFF0:
             # use abs sync
-            self.STRUCT_ABS_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_ABS_SYNC, em.timestamp, om.timestamp, str(buffer(em)), str(buffer(om)))
+            self.STRUCT_ABS_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_ABS_SYNC, em.timestamp, om.timestamp,
+                                           bytes(em), bytes(om))
             self.udp_next += self.STRUCT_ABS_SYNC.size
         else:
             edelta = em.timestamp - self.udp_time
@@ -444,7 +447,8 @@ class ServerConnection(ReconnectingConnection):
                 edelta = em.timestamp - self.udp_time
                 odelta = om.timestamp - self.udp_time
 
-            self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, edelta, odelta, str(buffer(em)), str(buffer(om)))
+            self.STRUCT_SYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SYNC, edelta, odelta,
+                                       bytes(em), bytes(om))
             self.udp_next += self.STRUCT_SYNC.size
 
         if self.udp_next > 1200:
@@ -462,7 +466,8 @@ class ServerConnection(ReconnectingConnection):
                 self.STRUCT_REBASE.pack_into(self.udp_buf, self.udp_next, self.TYPE_REBASE, self.udp_time)
                 self.udp_next += self.STRUCT_REBASE.size
 
-        self.STRUCT_SSYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SSYNC, delta, str(buffer(m)))
+        self.STRUCT_SSYNC.pack_into(self.udp_buf, self.udp_next, self.TYPE_SSYNC, delta,
+                                    bytes(m))
         self.udp_next += self.STRUCT_SSYNC.size
 
         if self.udp_next > 1200:
@@ -471,7 +476,7 @@ class ServerConnection(ReconnectingConnection):
     def flush_udp(self):
         self.STRUCT_HEADER.pack_into(self.udp_buf, 0, self.udp_key, self.udp_seq, self.udp_header_time)
         try:
-            self.udp_sock.send(buffer(self.udp_buf, 0, self.udp_next))
+            self.udp_sock.send(memoryview(self.udp_buf)[0:self.udp_next])
         except socket.error:
             pass
         global_stats.server_udp_bytes += self.udp_next
@@ -509,7 +514,7 @@ class ServerConnection(ReconnectingConnection):
                           'udp_transport': 2 if self.offer_udp else False,
                           'return_result_format': 'ecef' }
         handshake_msg.update(self.handshake_data)
-        self.writebuf += json.dumps(handshake_msg) + '\n' # linebuf not used yet
+        self.writebuf += (json.dumps(handshake_msg) + '\n').encode('ascii') # linebuf not used yet
         self.consume_readbuf = self.consume_readbuf_uncompressed
         self.handle_server_line = self.handle_handshake_response
 
@@ -547,11 +552,11 @@ class ServerConnection(ReconnectingConnection):
         self.consume_readbuf()
 
     def consume_readbuf_uncompressed(self):
-        lines = self.readbuf.split('\n')
+        lines = self.readbuf.split(b'\n')
         self.readbuf = lines[-1]
         for line in lines[:-1]:
             try:
-                msg = json.loads(line)
+                msg = json.loads(line.decode('ascii'))
             except ValueError:
                 log("json parsing problem, line: >>{line}<<", line=line)
                 raise
@@ -566,12 +571,12 @@ class ServerConnection(ReconnectingConnection):
             if end > len(self.readbuf):
                 break
 
-            packet = self.readbuf[i + 2:end] + '\x00\x00\xff\xff'
+            packet = self.readbuf[i + 2:end] + b'\x00\x00\xff\xff'
             linebuf = self.decompressor.decompress(packet)
-            lines = linebuf.split('\n')
+            lines = linebuf.split(b'\n')
             for line in lines[:-1]:
                 try:
-                    msg = json.loads(line)
+                    msg = json.loads(line.decode('ascii'))
                 except ValueError:
                     log("json parsing problem, line: >>{line}<<", line=line)
                     raise
@@ -580,7 +585,7 @@ class ServerConnection(ReconnectingConnection):
 
             i = end
 
-        self.readbuf = self.readbuf[i:]
+        del self.readbuf[:i]
 
     def handle_handshake_response(self, response):
         if 'reconnect_in' in response:
@@ -885,7 +890,7 @@ class Coordinator:
             
     def expire(self):
         discarded = []
-        for ac in self.aircraft.values():
+        for ac in list(self.aircraft.values()):
             if (self.last_rcv_timestamp - ac.last_message_timestamp) > 60 * self.freq:
                 if ac.reported:
                     discarded.append(ac.icao)

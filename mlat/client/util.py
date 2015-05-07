@@ -25,12 +25,14 @@ __all__ = ('log', 'log_exc', 'LoggingMixin')
 
 
 def log(msg, *args, **kwargs):
-    print >>sys.stderr, time.ctime(), msg.format(*args, **kwargs)
+    print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
+    sys.stderr.flush()
 
 
 def log_exc(msg, *args, **kwargs):
-    print >>sys.stderr, time.ctime(), msg.format(*args, **kwargs)
-    traceback.print_exc(sys.stderr)
+    print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.stderr.flush()
 
 
 class LoggingMixin:

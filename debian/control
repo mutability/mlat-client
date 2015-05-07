@@ -2,9 +2,9 @@ Source: mlat-client
 Section: embedded
 Priority: extra
 Maintainer: Oliver Jowett <oliver@mutability.co.uk>
-Build-Depends: debhelper(>=8), python-dev
+Build-Depends: debhelper(>=8), python3-dev
 Standards-Version: 3.9.3
-X-Python-Version: >= 2.7
+X-Python3-Version: >= 3.2
 Homepage: https://github.com/mutability/mlat-client
 Vcs-Git: https://github.com/mutability/mlat-client.git
 

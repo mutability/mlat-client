@@ -26,7 +26,7 @@
 /* prototypes and definitions */
 
 typedef struct {
-    PyObject HEAD;
+    PyObject_HEAD
 
     unsigned long long timestamp;
     unsigned int signal;
@@ -46,7 +46,7 @@ typedef struct {
 
 /* type support functions */
 static long modesmessage_hash(PyObject *self);
-static int modesmessage_compare(PyObject *self, PyObject *other);
+static PyObject *modesmessage_richcompare(PyObject *self, PyObject *other, int op);
 static PyObject *modesmessage_repr(PyObject *self);
 static PyObject *modesmessage_str(PyObject *self);
 static PyObject *modesmessage_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
@@ -56,8 +56,7 @@ static void modesmessage_dealloc(modesmessage *self);
 static Py_ssize_t modesmessage_sq_length(modesmessage *self);
 static PyObject *modesmessage_sq_item(modesmessage *self, Py_ssize_t i);
 /* buffer support functions */
-static Py_ssize_t modesmessage_bf_getreadbuffer(modesmessage *self, Py_ssize_t segment, void **ptrptr);
-static Py_ssize_t modesmessage_bf_segcount(modesmessage *self, Py_ssize_t *lenp);
+static int modesmessage_bf_getbuffer(PyObject *self, Py_buffer *view, int flags);
 /* internal factory function */
 static PyObject *modesmessage_from_buffer(unsigned long long timestamp, unsigned signal, uint8_t *data, int datalen);
 /* decoder */
@@ -136,7 +135,7 @@ crc_residual(PyObject *self, PyObject *args)
         goto out;
     }
 
-    rv = PyInt_FromLong(calculate_crc(buffer.buf, buffer.len));
+    rv = PyLong_FromLong(calculate_crc(buffer.buf, buffer.len));
 
  out:
     PyBuffer_Release(&buffer);
@@ -555,11 +554,9 @@ static PyMemberDef modesmessageMembers[] = {
     { NULL, 0, 0, 0, NULL }
 };
 
-static PyBufferProcs modesmessageBufferProcs = {
-    (readbufferproc)modesmessage_bf_getreadbuffer,    /* bf_getreadbuffer  */
-    0,                                                /* bf_getwritebyffer */
-    (segcountproc)modesmessage_bf_segcount,           /* bf_getsegcount    */
-    0,                                                /* bf_getcharbuffer  */
+static PyBufferProcs modesmessageBufferProcs = {    
+    modesmessage_bf_getbuffer,          /* bf_getbuffer  */
+    NULL                                /* bf_releasebuffer */
 };
 
 static PySequenceMethods modesmessageSequenceMethods = {
@@ -574,8 +571,7 @@ static PySequenceMethods modesmessageSequenceMethods = {
 };
 
 static PyTypeObject modesmessageType = {
-    PyObject_HEAD_INIT(NULL)
-    0,		                      /* ob_size        */
+    PyVarObject_HEAD_INIT(NULL, 0)
     "_modes.message",                 /* tp_name        */
     sizeof(modesmessage),             /* tp_basicsize   */
     0,                                /* tp_itemsize    */
@@ -583,7 +579,7 @@ static PyTypeObject modesmessageType = {
     0,                                /* tp_print       */
     0,                                /* tp_getattr     */
     0,                                /* tp_setattr     */
-    (cmpfunc)modesmessage_compare,    /* tp_compare     */
+    0,                                /* tp_reserved    */
     (reprfunc)modesmessage_repr,      /* tp_repr        */
     0,                                /* tp_as_number   */
     &modesmessageSequenceMethods,     /* tp_as_sequence */
@@ -598,7 +594,7 @@ static PyTypeObject modesmessageType = {
     "A ModeS message.",               /* tp_doc         */
     0,                                /* tp_traverse    */
     0,                                /* tp_clear       */
-    0,                                /* tp_richcompare */
+    modesmessage_richcompare,         /* tp_richcompare */
     0,                                /* tp_weaklistoffset */
     0,                                /* tp_iter        */
     0,                                /* tp_iternext    */
@@ -649,7 +645,7 @@ static void modesmessage_dealloc(modesmessage *self)
     Py_XDECREF(self->address);
     Py_XDECREF(self->altitude);
     free(self->data);
-    self->HEAD.ob_type->tp_free((PyObject*)self);
+    Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 /* internal entry point to build a new message from a buffer */
@@ -741,7 +737,7 @@ static PyObject *decode_ac13(unsigned ac13)
     
     if (ac13 & 0x0010) { /* Q bit */
         int n = ((ac13 & 0x1f80) >> 2) | ((ac13 & 0x0020) >> 1) | (ac13 & 0x000f);
-        return PyInt_FromLong(n * 25 - 1000);
+        return PyLong_FromLong(n * 25 - 1000);
     }
 
     /* convert from Gillham code */
@@ -779,7 +775,7 @@ static PyObject *decode_ac13(unsigned ac13)
     if (a < -1200)
         Py_RETURN_NONE; /* illegal */
 
-    return PyInt_FromLong(a);
+    return PyLong_FromLong(a);
 }
 
 static PyObject *decode_ac12(unsigned ac12)
@@ -806,7 +802,7 @@ static int modesmessage_decode(modesmessage *self)
     crc = calculate_crc(self->data, self->datalen);
     /*fprintf(stderr, " CRC: %06x\n", crc);*/
     Py_XDECREF(self->crc);
-    if (!(self->crc = PyInt_FromLong(crc)))
+    if (!(self->crc = PyLong_FromLong(crc)))
         return -1;
 
     self->df = (self->data[0] >> 3) & 31;
@@ -840,7 +836,7 @@ static int modesmessage_decode(modesmessage *self)
         self->valid = ((crc & ~0x7f) == 0);
         if (self->valid) {
             Py_XDECREF(self->address);
-            if (!(self->address = PyInt_FromLong( (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]) )))
+            if (!(self->address = PyLong_FromLong( (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]) )))
                 return -1;
             Py_XDECREF(self->altitude); self->altitude = (Py_INCREF(Py_None), Py_None);
         }
@@ -853,7 +849,7 @@ static int modesmessage_decode(modesmessage *self)
             unsigned metype;
 
             Py_XDECREF(self->address);
-            if (!(self->address = PyInt_FromLong( (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]) )))
+            if (!(self->address = PyLong_FromLong( (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]) )))
                 return -1;            
             Py_XDECREF(self->altitude); self->altitude = (Py_INCREF(Py_None), Py_None);
 
@@ -885,12 +881,12 @@ static int modesmessage_decode(modesmessage *self)
     if (self->address == Py_None)
         fprintf(stderr, " AA : None\n");
     else
-        fprintf(stderr, " AA : %06lx\n", PyInt_AsLong(self->address));
+        fprintf(stderr, " AA : %06lx\n", PyLong_AsLong(self->address));
 
     if (self->altitude == Py_None)
         fprintf(stderr, " AC : None\n");
     else
-        fprintf(stderr, " AC : %ld ft\n", PyInt_AsLong(self->altitude));
+        fprintf(stderr, " AC : %ld ft\n", PyLong_AsLong(self->altitude));
 
     fprintf(stderr, "  V : %s\n", self->valid ? "valid" : "not valid");
     fprintf(stderr, "Even: %s\n", self->even_cpr ? "yes" : "no");
@@ -900,22 +896,9 @@ static int modesmessage_decode(modesmessage *self)
     return 0;
 }
 
-static Py_ssize_t modesmessage_bf_getreadbuffer(modesmessage *self, Py_ssize_t segment, void **ptrptr)
+static int modesmessage_bf_getbuffer(PyObject *self, Py_buffer *view, int flags)
 {
-    if (segment != 0) {
-        PyErr_SetString(PyExc_SystemError, "segment out of range");
-        return -1;
-    }
-
-    *ptrptr = self->data;
-    return self->datalen;
-}
-
-static Py_ssize_t modesmessage_bf_segcount(modesmessage *self, Py_ssize_t *lenp)
-{
-    if (lenp)
-        *lenp = self->datalen;
-    return 1;
+    return PyBuffer_FillInfo(view, self, ((modesmessage*)self)->data, ((modesmessage*)self)->datalen, 1, flags);
 }
 
 static Py_ssize_t modesmessage_sq_length(modesmessage *self)
@@ -930,7 +913,7 @@ static PyObject *modesmessage_sq_item(modesmessage *self, Py_ssize_t i)
         return NULL;
     }
 
-    return PyInt_FromLong(self->data[i]);
+    return PyLong_FromLong(self->data[i]);
 }
 
 static long modesmessage_hash(PyObject *self)
@@ -953,20 +936,52 @@ static long modesmessage_hash(PyObject *self)
     return (long)hash;
 }
 
-static int modesmessage_compare(PyObject *self, PyObject *other)
+static PyObject *modesmessage_richcompare(PyObject *self, PyObject *other, int op)
 {
-    modesmessage *message1, *message2;
+    PyObject *result = NULL;
 
-    if (! PyObject_TypeCheck(other, &modesmessageType))
-        return -1;
+    if (! PyObject_TypeCheck(self, &modesmessageType) ||
+        ! PyObject_TypeCheck(other, &modesmessageType)) {
+        result = Py_NotImplemented;
+    } else { 
+        modesmessage *message1 = (modesmessage*)self;
+        modesmessage *message2 = (modesmessage*)other;
+        int c = 0;
 
-    message1 = (modesmessage*)self;
-    message2 = (modesmessage*)other;
+        switch (op) {
+        case Py_EQ:
+            c = (message1->datalen == message2->datalen) && (memcmp(message1->data, message2->data, message1->datalen) == 0);
+            break;
+        case Py_NE:
+            c = (message1->datalen != message2->datalen) || (memcmp(message1->data, message2->data, message1->datalen) != 0);
+            break;
+        case Py_LT:
+            c = (message1->datalen < message2->datalen) || 
+                (message1->datalen == message2->datalen && memcmp(message1->data, message2->data, message1->datalen) < 0);
+            break;
+        case Py_LE:
+            c = (message1->datalen < message2->datalen) ||
+                (message1->datalen == message2->datalen && memcmp(message1->data, message2->data, message1->datalen) <= 0);
+            break;
+        case Py_GT:
+            c = (message1->datalen > message2->datalen) ||
+                (message1->datalen == message2->datalen && memcmp(message1->data, message2->data, message1->datalen) > 0);
+            break;
+        case Py_GE:
+            c = (message1->datalen > message2->datalen) ||
+                (message1->datalen == message2->datalen && memcmp(message1->data, message2->data, message1->datalen) >= 0);
+            break;
+        default:
+            result = Py_NotImplemented;
+            break;
+        }
 
-    if (message1->datalen != message2->datalen)
-        return message1->datalen - message2->datalen;
+        if (!result)
+            result = (c ? Py_True : Py_False);
+    }
 
-    return memcmp(message1->data, message2->data, message1->datalen);
+    Py_INCREF(result);
+    return result;
 }
 
 static char *hexdigit = "0123456789abcdef";
@@ -985,7 +1000,7 @@ static PyObject *modesmessage_repr(PyObject *self)
     }
     *p++ = 0;
 
-    return PyString_FromFormat("_modes.message(b'%s',%llu,%u)", buf, (unsigned long long)message->timestamp, (unsigned)message->signal);
+    return PyUnicode_FromFormat("_modes.message(b'%s',%llu,%u)", buf, (unsigned long long)message->timestamp, (unsigned)message->signal);
 }
 
 static PyObject *modesmessage_str(PyObject *self)
@@ -1001,7 +1016,7 @@ static PyObject *modesmessage_str(PyObject *self)
     }
     *p++ = 0;
 
-    return PyString_FromString(buf);
+    return PyUnicode_FromString(buf);
 }
 
 static PyMethodDef methods[] = {
@@ -1012,20 +1027,40 @@ static PyMethodDef methods[] = {
     { NULL, NULL, 0, NULL }
 };
 
-PyMODINIT_FUNC
-init_modes(void)
-{
-    PyObject *module;
-
-    if (PyType_Ready(&modesmessageType) < 0)
-        return;
+PyDoc_STRVAR(docstr, "C helpers to speed up ModeS message processing");
+static PyModuleDef module = {
+    PyModuleDef_HEAD_INIT,
+    "_modes",
+    docstr,
+    0,
+    methods,
+    NULL,
+    NULL,
+    NULL,
+    NULL
+};
     
+PyMODINIT_FUNC
+PyInit__modes(void)
+{
+    PyObject *m = NULL;
+
     init_crc_table();
 
-    module = Py_InitModule3("_modes", methods, "C helpers to speed up ModeS message processing");
-    if (module == NULL)
-        return;
+    if (PyType_Ready(&modesmessageType) < 0)
+        return NULL;
+    
+
+    m = PyModule_Create(&module);
+    if (m == NULL)
+        return NULL;
     
     Py_INCREF(&modesmessageType);
-    PyModule_AddObject(module, "message", (PyObject *)&modesmessageType);
+    if (PyModule_AddObject(m, "message", (PyObject *)&modesmessageType) < 0) {
+        Py_DECREF(&modesmessageType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    return m;
 }

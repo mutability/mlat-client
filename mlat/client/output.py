@@ -99,7 +99,7 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
         if now > self.next_heartbeat:
             self.next_heartbeat = now + self.heartbeat_interval
             try:
-                self.send('\n')
+                self.send('\n'.encode('ascii'))
             except socket.error:
                 self.handle_error()
 
@@ -138,7 +138,7 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
                                     nstations=nstations)
 
         try:
-            self.send(line + '\n')
+            self.send((line + '\n').encode('ascii'))
         except socket.error:
             self.handle_error()
 

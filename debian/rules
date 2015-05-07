@@ -12,7 +12,25 @@ export DH_VERBOSE=1
 # prevent any stray setuptools downloads
 export http_proxy=http://127.0.0.1:9/
 
+# we can't use pybuild on Raspbian. Do it by hand.
+#PYTHON2_VERSIONS=$(shell pyversions -vr)
+PYTHON3_VERSIONS=$(shell py3versions -vr)
+PYTHON_VERSIONS=${PYTHON3_VERSIONS}
+
+build-python%:
+	python$* setup.py build
+
+override_dh_auto_build: $(PYTHON3_VERSIONS:%=build-python%)
+
+install-python%:
+	python$* setup.py install --root=$(CURDIR)/debian/tmp --install-layout=deb
+
+override_dh_auto_install: $(PYTHON3_VERSIONS:%=install-python%)
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf build
+	rm -rf *.egg-info
+
 %:
-	dh $@ --with python2
-
-
+	dh $@ --with python3
