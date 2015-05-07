@@ -24,55 +24,20 @@ import sys
 if __name__ == '__main__':
     print >>sys.stderr, 'Hang on while I load everything (takes a few seconds on a Pi)..'
 
-import socket, json, time, traceback, asyncore, zlib, argparse, struct, math, errno
+import socket
+import json
+import time
+import asyncore
+import zlib
+import argparse
+import struct
+import math
+import errno
 
 import _modes
-
-def log(msg, *args, **kwargs):
-    print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
-
-def log_exc(msg, *args, **kwargs):
-    print >>sys.stderr, time.ctime(), msg.format(*args,**kwargs)
-    traceback.print_exc(sys.stderr)
-
-# radians to degrees
-RTOD = 180.0 / math.pi
-
-# WGS84 ellipsoid Earth parameters
-WGS84_A = 6378137.0
-WGS84_F = 1.0/298.257223563
-WGS84_B = WGS84_A * (1 - WGS84_F)
-WGS84_ECC_SQ = 1 - WGS84_B * WGS84_B / (WGS84_A * WGS84_A)
-WGS84_ECC = math.sqrt(WGS84_ECC_SQ)
-
-# Some derived values
-_wgs84_ep = math.sqrt((WGS84_A**2 - WGS84_B**2) / WGS84_B**2)
-_wgs84_ep2_b = _wgs84_ep**2 * WGS84_B
-_wgs84_e2_a = WGS84_ECC_SQ * WGS84_A
-
-def ecef2llh(ecef):
-    "Converts from ECEF to WGS84 lat/lon/height"
-
-    x, y, z = ecef
-
-    lon = math.atan2(y, x)
-
-    p = math.sqrt(x**2 + y**2)
-    th = math.atan2(WGS84_A * z, WGS84_B * p)
-    lat = math.atan2(z + _wgs84_ep2_b * math.sin(th)**3,
-                     p - _wgs84_e2_a * math.cos(th)**3)
-
-    N = WGS84_A / math.sqrt(1 - WGS84_ECC_SQ * math.sin(lat)**2)
-    alt = p / math.cos(lat) - N
-
-    return (lat*RTOD, lon*RTOD, alt)
-
-class LoggingMixin:
-    def log(self, message):
-        log('{0}', message)
-
-    def log_info(self, message, type='info'):
-        log('{0}: {1}', message, type)
+from mlat.client.util import LoggingMixin, log, log_exc
+import mlat.client.output
+import mlat.geodesy
 
 class Stats:
     def __init__(self, now):
@@ -85,121 +50,6 @@ class Stats:
         self.mlat_positions = 0
 
 global_stats = Stats(time.time())
-
-class SBSListener(LoggingMixin, asyncore.dispatcher):
-    def __init__(self, port, connection_factory):
-        asyncore.dispatcher.__init__(self)
-        self.port = port
-
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.set_reuse_addr()
-        self.bind( ('', port) )
-        self.listen(0)
-
-        self.output_channels = set()
-        self.connection_factory = connection_factory
-
-        log('Listening for {0} on port {1}', connection_factory.describe(), port)
-
-    def handle_accept(self):
-        accepted = self.accept()
-        if not accepted: return
-
-        new_socket, address = accepted
-        log('Accepted {0} from {1}:{2}', self.connection_factory.describe(), address[0], address[1])
-
-        self.output_channels.add(self.connection_factory(self, new_socket, address))
-
-    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations):
-        for channel in list(self.output_channels):
-            channel.send_position(timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations)
-
-    def heartbeat(self, now):
-        for channel in list(self.output_channels):
-            channel.heartbeat(now)
-
-    def disconnect(self):
-        for channel in list(self.output_channels):
-            channel.close()
-        self.close()
-
-def csv_quote(s):
-    if s.find('\n') == -1 and s.find('"') == -1 and s.find(',') == -1: return s
-    return '"' + s.replace('"', '""') + '"'
-
-class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
-    heartbeat_interval = 30.0
-    template = 'MSG,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'
-
-    def __init__(self, listener, socket, addr):
-        asyncore.dispatcher_with_send.__init__(self, sock=socket)
-        self.listener = listener
-        self.addr = addr
-        self.next_heartbeat = time.time() + self.heartbeat_interval
-
-    @staticmethod
-    def describe():
-        return 'SBS connection'
-
-    def heartbeat(self, now):
-        if now > self.next_heartbeat:
-            self.next_heartbeat = now + self.heartbeat_interval
-            try:
-                self.send('\n')
-            except socket.error:
-                self.handle_error()
-
-    def close(self):
-        asyncore.dispatcher_with_send.close(self)
-        self.listener.output_channels.discard(self)
-
-    def handle_read(self):
-        self.recv(1024)  # discarded
-
-    def handle_close(self):
-        log('Lost SBS output connection from {0}:{1}', self.addr[0], self.addr[1])
-        self.close()
-
-    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations):
-        now = time.time()
-
-        now_date = time.strftime("%Y/%m/%d", time.gmtime(now))
-        now_time = time.strftime("%H:%M:%S", time.gmtime(now)) + ".{0:03.0f}".format(math.modf(now)[0] * 1000)
-        rcv_date = time.strftime("%Y/%m/%d", time.gmtime(timestamp))
-        rcv_time = time.strftime("%H:%M:%S", time.gmtime(timestamp)) + ".{0:03.0f}".format(math.modf(timestamp)[0] * 1000)
-        line = self.template.format(addr=addr,
-                                    rcv_date = rcv_date,
-                                    rcv_time = rcv_time,
-                                    now_date = now_date,
-                                    now_time = now_time,
-                                    callsign = csv_quote(callsign) if callsign else '',
-                                    altitude = int(alt),
-                                    speed = '',
-                                    heading = '',
-                                    lat = round(lat,4),
-                                    lon = round(lon,4),
-                                    vrate = '',
-                                    squawk = csv_quote(squawk) if squawk else '',
-                                    fs = '',
-                                    emerg = '',
-                                    ident = '',
-                                    aog = '',
-                                    error_est = error_est,
-                                    nstations = nstations)
-
-        try:
-            self.send(line + '\n')
-        except socket.error:
-            self.handle_error()
-
-        self.next_heartbeat = time.time() + self.heartbeat_interval
-
-class SBSExtendedConnection(SBSConnection):
-    template = 'MLAT,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est:.0f}'
-
-    @staticmethod
-    def describe():
-        return 'extended-format SBS connection'
 
 class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     reconnect_interval = 30.0
@@ -304,7 +154,7 @@ class ReceiverConnection(ReconnectingConnection):
             self.sbs_reference_timestamp = None
             self.sbs_reference_systime = None
         else:
-            raise NotImplementedError("no support for conn_type=" + conn_type)
+            raise NotImplementedError("no support for conn_type=" + connection_type)
 
     def find_sbs_stream_start(self, data):
         # initially, we might be out of sync with the stream (the Basestation seems
@@ -819,7 +669,7 @@ class ServerConnection(ReconnectingConnection):
             ecef = result.get('ecef')
             if ecef is not None:
                 # new format
-                lat, lon, alt = ecef2llh(ecef)
+                lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
                 alt = alt / 0.3038   # convert meters to feet
                 ecef_cov = result.get('cov')
                 if ecef_cov:
@@ -1317,9 +1167,11 @@ def main():
 
     outputs = []
     if args.sbs_port:
-        outputs.append(SBSListener(args.sbs_port,SBSConnection))
+        outputs.append(mlat.client.output.SBSListener(args.sbs_port,
+                                                      mlat.client.output.SBSConnection))
     if args.sbs_ext_port:
-        outputs.append(SBSListener(args.sbs_ext_port,SBSExtendedConnection))
+        outputs.append(mlat.client.output.SBSListener(args.sbs_ext_port,
+                                                      mlat.client.output.SBSExtendedConnection))
 
     freq, clock_type, conn_type = receiver_types[args.input_type]
 

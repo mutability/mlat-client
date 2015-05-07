@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+# -*- python -*-
 
 # Part of mlat-client - an ADS-B multilateration client.
 # Copyright 2015, Oliver Jowett <oliver@mutability.co.uk>
@@ -16,15 +16,29 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from distutils.core import setup, Extension
+import sys
+import time
+import traceback
 
-modes_ext = Extension('_modes', sources=['_modes.c'])
 
-setup(name='MlatClient',
-      version='0.1.12~dev',
-      description='Multilateration client package',
-      author='Oliver Jowett',
-      author_email='oliver@mutability.co.uk',
-      packages=['mlat', 'mlat.client'],
-      ext_modules=[modes_ext],
-      scripts=['mlat-client'])
+__all__ = ('log', 'log_exc', 'LoggingMixin')
+
+
+def log(msg, *args, **kwargs):
+    print >>sys.stderr, time.ctime(), msg.format(*args, **kwargs)
+
+
+def log_exc(msg, *args, **kwargs):
+    print >>sys.stderr, time.ctime(), msg.format(*args, **kwargs)
+    traceback.print_exc(sys.stderr)
+
+
+class LoggingMixin:
+    """A mixin that redirects asyncore's logging to the client's
+    global logging."""
+
+    def log(self, message):
+        log('{0}', message)
+
+    def log_info(self, message, type='info'):
+        log('{0}: {1}', message, type)
