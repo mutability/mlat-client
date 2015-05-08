@@ -41,14 +41,14 @@ class Stats:
     def log_and_reset(self):
         now = monotonic_time()
         elapsed = now - self.start
-        log('Receiver: {1:6.1f} msg/s received     {2:4.1f}kB/s from receiver',
+        log('Receiver: {0:6.1f} msg/s received     {1:4.1f}kB/s from receiver',
             self.receiver_rx_messages / elapsed,
             self.receiver_rx_bytes / elapsed / 1000.0)
-        log('Server:   {1:6.1f} kB/s from server   {2:4.1f}kB/s TCP to server  {3:4.1f}kB/s UDP to server',
+        log('Server:   {0:6.1f} kB/s from server   {1:4.1f}kB/s TCP to server  {2:4.1f}kB/s UDP to server',
             self.server_rx_bytes / elapsed / 1000.0,
             self.server_tx_bytes / elapsed / 1000.0,
             self.server_udp_bytes / elapsed / 1000.0)
-        if self.server.return_results:
+        if self.mlat_positions:
             log('Results:  {0:3.1f} positions/minute',
                 self.mlat_positions / elapsed * 60.0)
         self.reset(now)
