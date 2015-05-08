@@ -149,20 +149,17 @@ class ReceiverConnection(ReconnectingConnection):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
+        self.last_timestamp = 0
         if connection_type == 'radarcape':
             self.packetize = packetize_radarcape_input
         elif connection_type == 'beast':
             self.packetize = packetize_beast_input
         elif connection_type == 'sbs':
             self.packetize = self.find_sbs_stream_start
-            self.sbs_last = 0
-            self.sbs_upper_timestamp = 0
-            self.sbs_reference_timestamp = None
-            self.sbs_reference_systime = None
         else:
             raise NotImplementedError("no support for conn_type=" + connection_type)
 
-    def find_sbs_stream_start(self, data):
+    def find_sbs_stream_start(self, data, start):
         # initially, we might be out of sync with the stream (the Basestation seems
         # to drop us in the middle of a packet on connecting sometimes)
         # so throw away data until we see DLE STX
@@ -171,16 +168,16 @@ class ReceiverConnection(ReconnectingConnection):
         i = data.find('\x10\x02')
         if i == 0:
             # DLE STX at the very start of input, great!
-            self.packetize = self.packetize_sbs_input
-            return self.packetize(data)
+            self.packetize = packetize_sbs_input
+            return self.packetize(data, start)
 
         while i > 0:
             # DLE STX not at the very start
             # check that it's preceeded by a non-DLE
             if data[i-1] != '\x10':
                 # Success.
-                self.packetize = self.packetize_sbs_input
-                consumed, messages = self.packetize(data[i:])
+                self.packetize = packetize_sbs_input
+                consumed, messages = self.packetize(data[i:], start)
                 return (consumed + i, messages)
 
             # DLE DLE STX. Can't assume this is the start of a
@@ -194,44 +191,6 @@ class ReceiverConnection(ReconnectingConnection):
             raise ValueError("Doesn't look like a Basestation input stream - no DLE STX in the first 512 bytes")
 
         return (0, ())
-
-    def packetize_sbs_input(self, data):
-        # SBS timestamp rolls over frequently: every 2**24 * 50ns = 838,860,800ns (~0.8s)
-        # Stretch that by three more bytes using the system clock.
-
-        consumed, messages = _modes.packetize_sbs_input(data)
-        if not messages:
-            return consumed, messages
-
-        now = time.time()
-        last = self.sbs_last
-
-        for m in messages:
-            t = m.timestamp + self.sbs_upper_timestamp
-            if t < last:
-                # rolled over
-                self.sbs_upper_timestamp += (1 << 24)
-                t += (1 << 24)
-
-            m.timestamp = last = t
-
-        if self.sbs_reference_systime is None:
-            self.sbs_reference_systime = now
-            self.sbs_reference_timestamp = last
-        else:
-            systime_delta = now - self.sbs_reference_systime
-            timestamp_delta = (last - self.sbs_reference_timestamp) * 50e-9
-
-            if abs(timestamp_delta - systime_delta) > 0.838860800*10:
-                log("SBS timestamp drift: timestamps elapsed {t:.9f}s, system elapsed {s:.9f}s, drift {d:.9f}s",
-                    t=timestamp_delta,
-                    s=systime_delta,
-                    d=systime_delta - timestamp_delta)
-                self.sbs_reference_systime = now
-                self.sbs_reference_timestamp = last
-
-        self.sbs_last = last
-        return consumed, messages
 
     def reset_connection(self):
         self.residual = None
@@ -272,7 +231,7 @@ class ReceiverConnection(ReconnectingConnection):
             
         self.last_data_received = time.time()
 
-        consumed, messages = self.packetize(moredata)
+        consumed, messages = self.packetize(moredata, self.last_timestamp)
         if consumed < len(moredata):
             self.residual = moredata[consumed:]
             if len(self.residual) > 5120:
@@ -282,6 +241,7 @@ class ReceiverConnection(ReconnectingConnection):
 
         if messages:
             global_stats.receiver_rx_messages += len(messages)
+            self.last_timestamp = messages[-1].timestamp
             self.coordinator.input_received_messages(messages)
 
 class ServerConnection(ReconnectingConnection):
@@ -751,6 +711,7 @@ class Coordinator:
         self.aircraft = {}
         self.requested_traffic = set()
         self.df_handlers = {
+            -1: self.received_clock_reset_marker,
             0: self.received_df_misc_alt,
             4: self.received_df_misc_alt,
             5: self.received_df_misc_noalt,
@@ -817,35 +778,22 @@ class Coordinator:
         self.next_rate_report = None
         self.next_expiry = None
 
+    @mlat.profile.trackcpu
     def input_received_messages(self, messages):
         for message in messages:
-            if message.timestamp == 0:
-                # heartbeat etc
-                continue
-
-            if message.timestamp < self.last_rcv_timestamp:
-                if self.radarcape_gps and (message.timestamp < 60e9) and (self.last_rcv_timestamp > 86340e9):
-                    # probably end of day rollover
-                    log("Radarcape end-of-day GPS timestamp rollover")
-                    # force a server clock reset:
-                    self.server.send_json({'clock_reset' : 'GPS rollover'})
-
-                elif (self.last_rcv_timestamp - message.timestamp) > self.freq * 90:
-                    log("Very out of range message timestamp seen (last {0:012x}, now {1:012x}). Assuming something is horribly wrong and forcing a reconnect.", self.last_rcv_timestamp, message.timestamp)
-                    self.receiver.disconnect('Timestamp problems')
-                    self.receiver.schedule_reconnect()
-                    return
-
-                else:
-                    continue
-
-            self.last_rcv_timestamp = message.timestamp
-
-            if not message.valid:
-                continue
-
             handler = self.df_handlers.get(message.df)
             if handler: handler(message)
+
+        self.last_rcv_timestamp = messages[-1].timestamp
+
+    def received_clock_reset_marker(message):
+        # clock reset, but stream is intact
+        # because we run our timing based on timestamps (for now),
+        # we have to reset aircraft tracking too ..
+        discarded = list(self.aircraft.keys())
+        self.aircraft.clear()
+        self.server.send_json({'clock_reset' : 'Normal clock rollover (GPS start of day, etc)'})
+        self.server.send_lost(discarded)
 
     def start_sending(self, icao_list):
         for icao in icao_list:
