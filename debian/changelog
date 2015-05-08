@@ -6,6 +6,10 @@ mlat-client (0.1.12~dev) UNRELEASED; urgency=medium
     during the handshaking phase, where we would otherwise wait forever
     without writing.
   * Convert to Python 3.
+  * Use time.monotonic() if available; emulate it if not available. This should
+    help with cases where system time goes backwards.
+  * More processing moved into the extension module. This seems to reduce the
+    client CPU by around 20% overall.
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 05 May 2015 22:38:25 +0100
 
