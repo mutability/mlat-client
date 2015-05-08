@@ -23,7 +23,7 @@ import time
 import math
 
 from mlat.client.net import LoggingMixin
-from mlat.client.util import log
+from mlat.client.util import log, monotonic_time
 
 
 class SBSListener(LoggingMixin, asyncore.dispatcher):
@@ -90,7 +90,7 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
         asyncore.dispatcher_with_send.__init__(self, sock=socket)
         self.listener = listener
         self.addr = addr
-        self.next_heartbeat = time.time() + self.heartbeat_interval
+        self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
     @staticmethod
     def describe():
@@ -143,7 +143,7 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
         except socket.error:
             self.handle_error()
 
-        self.next_heartbeat = time.time() + self.heartbeat_interval
+        self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
 
 class SBSExtendedConnection(SBSConnection):
