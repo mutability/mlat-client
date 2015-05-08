@@ -21,7 +21,7 @@ import time
 import traceback
 
 
-__all__ = ('log', 'log_exc', 'LoggingMixin')
+__all__ = ('log', 'log_exc', 'monotonic_time')
 
 
 def log(msg, *args, **kwargs):
@@ -35,19 +35,10 @@ def log_exc(msg, *args, **kwargs):
     sys.stderr.flush()
 
 
-class LoggingMixin:
-    """A mixin that redirects asyncore's logging to the client's
-    global logging."""
-
-    def log(self, message):
-        log('{0}', message)
-
-    def log_info(self, message, type='info'):
-        log('{0}: {1}', message, type)
-
-
 _adjust = 0
 _last = 0
+
+
 def monotonic_time():
     """Emulates time.monotonic() if not available."""
     global _adjust, _last
@@ -57,13 +48,13 @@ def monotonic_time():
         # system clock went backwards, add in a
         # fudge factor so our monotonic clock
         # does not.
-        _adjust = _adjust + (last - now)
+        _adjust = _adjust + (_last - now)
 
     _last = now
     return now + _adjust
 
 try:
     # try to use the 3.3+ version when available
-    from time import monotonic as monotonic_time
+    from time import monotonic as monotonic_time  # noqa
 except ImportError:
     pass

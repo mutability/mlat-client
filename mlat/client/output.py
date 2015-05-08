@@ -22,7 +22,8 @@ import socket
 import time
 import math
 
-from mlat.client.util import LoggingMixin, log
+from mlat.client.net import LoggingMixin
+from mlat.client.util import log
 
 
 class SBSListener(LoggingMixin, asyncore.dispatcher):
