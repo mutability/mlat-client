@@ -44,3 +44,26 @@ class LoggingMixin:
 
     def log_info(self, message, type='info'):
         log('{0}: {1}', message, type)
+
+
+_adjust = 0
+_last = 0
+def monotonic_time():
+    """Emulates time.monotonic() if not available."""
+    global _adjust, _last
+
+    now = time.time()
+    if now < _last:
+        # system clock went backwards, add in a
+        # fudge factor so our monotonic clock
+        # does not.
+        _adjust = _adjust + (last - now)
+
+    _last = now
+    return now + _adjust
+
+try:
+    # try to use the 3.3+ version when available
+    from time import monotonic as monotonic_time
+except ImportError:
+    pass

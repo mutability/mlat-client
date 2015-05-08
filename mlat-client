@@ -35,7 +35,7 @@ import math
 import errno
 
 import _modes
-from mlat.client.util import LoggingMixin, log, log_exc
+from mlat.client.util import LoggingMixin, log, log_exc, monotonic_time
 import mlat.profile
 import mlat.client.output
 import mlat.geodesy
@@ -50,7 +50,7 @@ class Stats:
         self.receiver_rx_messages = 0
         self.mlat_positions = 0
 
-global_stats = Stats(time.time())
+global_stats = Stats(monotonic_time())
 
 class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     reconnect_interval = 30.0
@@ -92,7 +92,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     def schedule_reconnect(self):
         if self.reconnect_at is None:
             log('Reconnecting in {0} seconds', self.reconnect_interval)
-            self.reconnect_at = time.time() + self.reconnect_interval
+            self.reconnect_at = monotonic_time() + self.reconnect_interval
 
     def reconnect(self):
         if self.state != 'disconnected':
@@ -197,7 +197,7 @@ class ReceiverConnection(ReconnectingConnection):
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
-        self.last_data_received = time.time()
+        self.last_data_received = monotonic_time()
         self.state = 'ready'
         self.coordinator.input_connected()
 
@@ -229,7 +229,7 @@ class ReceiverConnection(ReconnectingConnection):
         if self.residual:
             moredata = self.residual + moredata
             
-        self.last_data_received = time.time()
+        self.last_data_received = monotonic_time()
 
         consumed, messages = self.packetize(moredata, self.last_timestamp)
         if consumed < len(moredata):
@@ -470,7 +470,7 @@ class ServerConnection(ReconnectingConnection):
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
         self.state = 'handshaking'
-        self.last_data_received = time.time()
+        self.last_data_received = monotonic_time()
 
         compress_methods = ['none']
         if self.offer_zlib:
@@ -503,7 +503,7 @@ class ServerConnection(ReconnectingConnection):
 
         if self.server_heartbeat_at is not None and self.server_heartbeat_at < now:
             self.server_heartbeat_at = now + self.heartbeat_interval
-            self.send_json({'heartbeat': {'client_time': round(now, 3)}})
+            self.send_json({'heartbeat': {'client_time': round(time.time(), 3)}})
 
     def handle_read(self):
         try:
@@ -518,7 +518,7 @@ class ServerConnection(ReconnectingConnection):
             self.schedule_reconnect()
             return
 
-        self.last_data_received = time.time()
+        self.last_data_received = monotonic_time()
         self.readbuf += moredata
         global_stats.server_rx_bytes += len(moredata)
         self.consume_readbuf()
@@ -590,7 +590,7 @@ class ServerConnection(ReconnectingConnection):
 
         self.selective_traffic = response.get('selective_traffic', False)
         if response.get('heartbeat',False):
-            self.server_heartbeat_at = time.time() + self.heartbeat_interval
+            self.server_heartbeat_at = monotonic_time() + self.heartbeat_interval
 
         if 'udp_transport' in response:
             host, port, key = response['udp_transport']
@@ -721,11 +721,9 @@ class Coordinator:
             11: self.received_df11,
             17: self.received_df17
         }
-        self.last_rcv_timestamp = None
-
         self.next_report = None
-        self.next_stats = time.time() + self.stats_interval
-        self.next_profile = time.time()
+        self.next_stats = monotonic_time() + self.stats_interval
+        self.next_profile = monotonic_time()
 
         receiver.coordinator = self
         server.coordinator = self
@@ -734,7 +732,7 @@ class Coordinator:
         try:
             self.server.reconnect()
 
-            next_heartbeat = time.time() + 0.5
+            next_heartbeat = monotonic_time() + 0.5
             while True:
                 # maybe there are no active sockets and
                 # we're just waiting on a timeout
@@ -743,7 +741,7 @@ class Coordinator:
                 else:
                     time.sleep(1.0)
 
-                now = time.time()
+                now = monotonic_time()
                 if now >= next_heartbeat:
                     next_heartbeat = now + 0.5
                     self.heartbeat(now)
@@ -754,7 +752,6 @@ class Coordinator:
             for o in self.outputs: o.disconnect()
 
     def input_connected(self):
-        self.last_rcv_timestamp = 0
         self.server.send_json({'input_connected' : 'OK'})
 
     def input_disconnected(self):
@@ -768,7 +765,7 @@ class Coordinator:
         self.requested_traffic = set()
         self.newly_seen = set()
         self.aircraft = {}
-        self.next_report = time.time() + self.report_interval
+        self.next_report = monotonic_time() + self.report_interval
         if self.receiver.state != 'ready':
             self.receiver.reconnect()
 
@@ -784,16 +781,9 @@ class Coordinator:
             handler = self.df_handlers.get(message.df)
             if handler: handler(message)
 
-        self.last_rcv_timestamp = messages[-1].timestamp
-
     def received_clock_reset_marker(message):
         # clock reset, but stream is intact
-        # because we run our timing based on timestamps (for now),
-        # we have to reset aircraft tracking too ..
-        discarded = list(self.aircraft.keys())
-        self.aircraft.clear()
         self.server.send_json({'clock_reset' : 'Normal clock rollover (GPS start of day, etc)'})
-        self.server.send_lost(discarded)
 
     def start_sending(self, icao_list):
         for icao in icao_list:
@@ -820,8 +810,8 @@ class Coordinator:
         if self.next_report and now >= self.next_report:
             self.next_report = now + self.report_interval
             self.send_aircraft_report()
-            self.expire()
-            self.send_rate_report()
+            self.expire(now)
+            self.send_rate_report(now)
 
         if now >= self.next_stats:
             self.next_stats = now + self.stats_interval
@@ -839,24 +829,24 @@ class Coordinator:
             self.server.send_seen(self.newly_seen)
             self.newly_seen.clear()
 
-    def send_rate_report(self):
+    def send_rate_report(self, now):
         # report ADS-B position rate stats
         rate_report = {}
         for ac in self.aircraft.values():
-            interval = (self.last_rcv_timestamp - ac.rate_measurement_start) / float(self.freq)
-            if interval > 0 and self.last_rcv_timestamp - ac.last_position_timestamp < 60 * self.freq:
+            interval = now - ac.rate_measurement_start
+            if interval > 0 and (now - ac.last_position_timestamp) < 60:
                 rate = 1.0 * ac.recent_adsb_positions / interval
-                ac.rate_measurement_start = self.last_rcv_timestamp
+                ac.rate_measurement_start = now
                 ac.recent_adsb_positions = 0
                 rate_report[ac.icao] = rate
 
         if rate_report:
             self.server.send_rate_report(rate_report)
             
-    def expire(self):
+    def expire(self, now):
         discarded = []
         for ac in list(self.aircraft.values()):
-            if (self.last_rcv_timestamp - ac.last_message_timestamp) > 60 * self.freq:
+            if (now - ac.last_message_timestamp) > 60:
                 if ac.reported:
                     discarded.append(ac.icao)
                 del self.aircraft[ac.icao]
