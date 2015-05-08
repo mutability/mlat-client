@@ -234,7 +234,7 @@ class ReceiverConnection(ReconnectingConnection):
         return consumed, messages
 
     def reset_connection(self):
-        self.readbuf = bytearray()
+        self.residual = None
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
@@ -255,7 +255,7 @@ class ReceiverConnection(ReconnectingConnection):
     @mlat.profile.trackcpu
     def handle_read(self):
         try:
-            moredata = bytearray(self.recv(16384))
+            moredata = self.recv(16384)
         except socket.error as e:
             if e.errno == errno.EAGAIN:
                 return
@@ -265,16 +265,20 @@ class ReceiverConnection(ReconnectingConnection):
             self.close()
             return
 
-        self.last_data_received = time.time()
-        self.readbuf += moredata
         global_stats.receiver_rx_bytes += len(moredata)
-            
-        consumed,messages = self.packetize(self.readbuf)
-        if consumed:
-            del self.readbuf[:consumed]
 
-        if len(self.readbuf) > 5120:
-            raise RuntimeError('parser broken - buffer not being consumed')
+        if self.residual:
+            moredata = self.residual + moredata
+            
+        self.last_data_received = time.time()
+
+        consumed, messages = self.packetize(moredata)
+        if consumed < len(moredata):
+            self.residual = moredata[consumed:]
+            if len(self.residual) > 5120:
+                raise RuntimeError('parser broken - buffer not being consumed')
+        else:
+            self.residual = None
 
         if messages:
             global_stats.receiver_rx_messages += len(messages)
