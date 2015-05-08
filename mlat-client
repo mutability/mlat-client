@@ -36,6 +36,7 @@ import errno
 
 import _modes
 from mlat.client.util import LoggingMixin, log, log_exc
+import mlat.profile
 import mlat.client.output
 import mlat.geodesy
 
@@ -136,6 +137,11 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     def lost_connection(self):
         pass
 
+
+packetize_radarcape_input = mlat.profile.trackcpu(_modes.packetize_radarcape_input)
+packetize_beast_input = mlat.profile.trackcpu(_modes.packetize_beast_input)
+packetize_sbs_input = mlat.profile.trackcpu(_modes.packetize_sbs_input)
+
 class ReceiverConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
@@ -144,9 +150,9 @@ class ReceiverConnection(ReconnectingConnection):
         self.coordinator = None
         self.last_data_received = None
         if connection_type == 'radarcape':
-            self.packetize = _modes.packetize_radarcape_input
+            self.packetize = packetize_radarcape_input
         elif connection_type == 'beast':
-            self.packetize = _modes.packetize_beast_input
+            self.packetize = packetize_beast_input
         elif connection_type == 'sbs':
             self.packetize = self.find_sbs_stream_start
             self.sbs_last = 0
@@ -246,6 +252,7 @@ class ReceiverConnection(ReconnectingConnection):
             self.disconnect('No data (not even keepalives) received for {0:.0f} seconds'.format(self.inactivity_timeout))
             self.reconnect()
 
+    @mlat.profile.trackcpu
     def handle_read(self):
         try:
             moredata = bytearray(self.recv(16384))
@@ -335,6 +342,7 @@ class ServerConnection(ReconnectingConnection):
     def writable(self):
         return self.connecting or self.writebuf or (self.fill_writebuf and self.linebuf)
 
+    @mlat.profile.trackcpu
     def handle_write(self):
         if self.fill_writebuf:
             self.fill_writebuf()
@@ -752,6 +760,7 @@ class Coordinator:
 
         self.next_report = None
         self.next_stats = time.time() + self.stats_interval
+        self.next_profile = time.time()
 
         receiver.coordinator = self
         server.coordinator = self
@@ -851,6 +860,10 @@ class Coordinator:
         self.server.heartbeat(now)
         for o in self.outputs:
             o.heartbeat(now)
+
+        if now >= self.next_profile:
+            self.next_profile = now + 30.0
+            mlat.profile.dump_cpu_profiles()
 
         if self.next_report and now >= self.next_report:
             self.next_report = now + self.report_interval
