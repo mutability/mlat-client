@@ -125,8 +125,6 @@ class Coordinator:
 
     def report_aircraft(self, ac):
         ac.reported = True
-        if not self.server.selective_traffic:
-            ac.requested = True
         self.newly_seen.add(ac.icao)
 
     def send_aircraft_report(self):

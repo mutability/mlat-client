@@ -167,6 +167,9 @@ class UdpServerConnection:
         self.used = 0
         self.sock.close()
 
+    def __str__(self):
+        return '{0}:{1}'.format(self.host, self.port)
+
 
 class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     reconnect_interval = 30.0
@@ -180,8 +183,6 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.offer_udp = offer_udp
         self.return_results = return_results
         self.coordinator = None
-        self.selective_traffic = False
-        self.rate_reports = False
         self.udp_transport = None
 
         self.reset_connection()
@@ -287,9 +288,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def send_rate_report(self, report):
-        if self.rate_reports:
-            r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k, v in report.items()])
-            self.send_json({'rate_report': r2})
+        r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k, v in report.items()])
+        self.send_json({'rate_report': r2})
 
     def send_clock_reset(self, message):
         self.send_json({'clock_reset': message})
@@ -417,16 +417,13 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             raise IOError('Server response asked for a compression method {0}, which we do not support'.format(
                 response['compress']))
 
-        self.selective_traffic = response.get('selective_traffic', False)
-        if response.get('heartbeat', False):
-            self.server_heartbeat_at = monotonic_time() + self.heartbeat_interval
+        self.server_heartbeat_at = monotonic_time() + self.heartbeat_interval
 
         if 'udp_transport' in response:
             host, port, key = response['udp_transport']
             if not host:
                 host = self.host
 
-            log("UDP: sending to {0}:{1}", host, port)
             self.udp_transport = UdpServerConnection(host, port, key)
 
             self.send_mlat = self.udp_transport.send_mlat
@@ -438,25 +435,19 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             self.send_sync = self.send_tcp_sync
             self.send_split_sync = self.send_tcp_split_sync
 
-        self.rate_reports = response.get('rate_reports', False)
         self.split_sync = response.get('split_sync', False)
 
         log('Handshake complete.')
         log('  Compression:       {0}', compress)
-        log('  Selective traffic: {0}', self.selective_traffic and 'enabled' or 'disabled')
-        log('  Heartbeats:        {0}', self.server_heartbeat_at and 'enabled' or 'disabled')
-        log('  UDP transport:     {0}', self.udp_transport and 'enabled' or 'disabled')
-        log('  Rate reports:      {0}', self.rate_reports and 'enabled' or 'disabled')
+        log('  UDP transport:     {0}', self.udp_transport and str(self.udp_transport) or 'disabled')
         log('  Split sync:        {0}', self.split_sync and 'enabled' or 'disabled')
-        #log('  Return traffic:    {0}', response.get('return_traffic',False) and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request
         self.coordinator.server_connected()
 
         # dummy rate report to indicate we'll be sending them
-        if self.rate_reports:
-            self.send_rate_report({})
+        self.send_rate_report({})
 
     def handle_connected_request(self, request):
         #log('Receive: {0}', request)
