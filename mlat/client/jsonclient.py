@@ -81,8 +81,7 @@ class UdpServerConnection:
                                 self.base_timestamp)
         self.used += STRUCT_REBASE.size
 
-    def send_mlat(self, message, altitude=None):
-        # nb: altitude is ignored!
+    def send_mlat(self, message):
         if not self.used:
             self.prepare_header(message.timestamp)
 
@@ -269,12 +268,6 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             message.timestamp,
             str(message)))
 
-    def send_tcp_mlat_and_alt(self, message, altitude):
-        self.linebuf.append('{{"mlat":{{"t":{0},"m":"{1}","a":{2}}}}}'.format(
-            message.timestamp,
-            str(message),
-            altitude))
-
     def send_tcp_sync(self, em, om):
         self.linebuf.append('{{"sync":{{"et":{0},"em":"{1}","ot":{2},"om":"{3}"}}}}'.format(
             em.timestamp,
@@ -297,6 +290,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         if self.rate_reports:
             r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k, v in report.items()])
             self.send_json({'rate_report': r2})
+
+    def send_clock_reset(self, message):
+        self.send_json({'clock_reset': message})
 
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
@@ -434,13 +430,11 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             self.udp_transport = UdpServerConnection(host, port, key)
 
             self.send_mlat = self.udp_transport.send_mlat
-            self.send_mlat_and_alt = self.udp_transport.send_mlat
             self.send_sync = self.udp_transport.send_sync
             self.send_split_sync = self.udp_transport.send_split_sync
         else:
             self.udp_transport = None
             self.send_mlat = self.send_tcp_mlat
-            self.send_mlat_and_alt = self.send_tcp_mlat_and_alt
             self.send_sync = self.send_tcp_sync
             self.send_split_sync = self.send_tcp_split_sync
 
@@ -467,9 +461,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def handle_connected_request(self, request):
         #log('Receive: {0}', request)
         if 'start_sending' in request:
-            self.coordinator.start_sending([int(x, 16) for x in request['start_sending']])
+            self.coordinator.server_start_sending([int(x, 16) for x in request['start_sending']])
         elif 'stop_sending' in request:
-            self.coordinator.stop_sending([int(x, 16) for x in request['stop_sending']])
+            self.coordinator.server_stop_sending([int(x, 16) for x in request['stop_sending']])
         elif 'heartbeat' in request:
             pass
         elif 'result' in request:
@@ -500,14 +494,14 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                 callsign = result['callsign']
                 squawk = result['squawk']
 
-            self.coordinator.received_mlat_result(timestamp=result['@'],
-                                                  addr=int(result['addr'], 16),
-                                                  lat=lat,
-                                                  lon=lon,
-                                                  alt=alt,
-                                                  callsign=callsign,
-                                                  squawk=squawk,
-                                                  error_est=error_est,
-                                                  nstations=nstations)
+            self.coordinator.server_mlat_result(timestamp=result['@'],
+                                                addr=int(result['addr'], 16),
+                                                lat=lat,
+                                                lon=lon,
+                                                alt=alt,
+                                                callsign=callsign,
+                                                squawk=squawk,
+                                                error_est=error_est,
+                                                nstations=nstations)
         else:
             log('ignoring request from server: {0}', request)
