@@ -304,7 +304,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             compress_methods.append('zlib')
             compress_methods.append('zlib2')
 
-        handshake_msg = {'version': 2,
+        handshake_msg = {'version': 3,
                          'client_version': mlat.client.version.CLIENT_VERSION,
                          'compress': compress_methods,
                          'selective_traffic': True,
