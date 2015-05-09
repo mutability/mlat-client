@@ -31,6 +31,7 @@ import json
 import mlat.client.version
 import mlat.client.net
 import mlat.profile
+import mlat.geodesy
 
 from mlat.client.util import log, monotonic_time
 from mlat.client.stats import global_stats
