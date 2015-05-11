@@ -32,6 +32,7 @@ from mlat.client.jsonclient import JsonServerConnection
 from mlat.client.coordinator import Coordinator
 from mlat.client.output import SBSListener, SBSConnection, SBSExtendedConnection
 
+
 def main():
     def latitude(s):
         lat = float(s)
@@ -101,13 +102,17 @@ def main():
                           required=True)
     location.add_argument('--alt',
                           type=altitude,
-                          help="Altitude of the receiver (AMSL).  Required. Defaults to metres, but units may specified with a 'ft' or 'm' suffix. (Except if they're negative due to option parser weirdness. Sorry!)",
+                          help="""
+Altitude of the receiver (AMSL).  Required. Defaults to metres, but units may
+specified with a 'ft' or 'm' suffix. (Except if they're negative due to option
+parser weirdness. Sorry!)""",
                           required=True)
     location.add_argument('--privacy',
-                          help="Sets the privacy flag for this receiver. Currently, this removes the receiver location pin from the coverage maps.",
+                          help="""
+Sets the privacy flag for this receiver. Currently, this removes the receiver
+location pin from the coverage maps.""",
                           action='store_true',
                           default=False)
-
 
     inputs = parser.add_argument_group('Mode S receiver input connection')
     inputs.add_argument('--input-type',
@@ -122,13 +127,17 @@ def main():
                         help="Host (IP or hostname) to connect to for Mode S traffic.  Required.",
                         required=True)
     inputs.add_argument('--input-port',
-                        help="Port to connect to for Mode S traffic. For SBS receivers, use port 30006. For Radarcape receivers, use port 10002.",
+                        help="""
+Port to connect to for Mode S traffic. For SBS receivers, use port 30006.
+For Radarcape receivers, use port 10002.""",
                         type=port,
                         default=30005)
 
     outputs = parser.add_argument_group('Multilateration server connection')
     outputs.add_argument('--user',
-                         help="User information to give to the server. Used to get in touch if there are problems.",
+                         help="""
+User information to give to the server. Used to get in touch if there are
+problems.""",
                          required=True)
     outputs.add_argument('--output-host',
                          help="Host (IP or hostname) of the multilateration server",
@@ -150,10 +159,12 @@ def main():
 
     results = parser.add_argument_group('Results output')
     results.add_argument('--sbs-port',
-                         help="Local port to listen on for connections that will receive Basestation 'port 30003'-format results.",
+                         help="""
+Local port to listen on for connections that will receive Basestation 'port 30003'-format results.""",
                          type=port)
     results.add_argument('--sbs-ext-port',
-                         help="Local port to listen on for connections that will receive extended results in a Basestation-like format",
+                         help="""
+Local port to listen on for connections that will receive extended results in a Basestation-like format""",
                          type=port)
 
     args = parser.parse_args()
@@ -170,17 +181,17 @@ def main():
 
     receiver = ReceiverConnection(host=args.input_host, port=args.input_port, connection_type=conn_type)
     server = JsonServerConnection(host=args.output_host, port=args.output_port,
-                                  handshake_data={'lat':args.lat,
-                                                  'lon':args.lon,
-                                                  'alt':args.alt,
-                                                  'user':args.user,
-                                                  'clock_type':clock_type,
-                                                  'privacy':args.privacy},
+                                  handshake_data={'lat': args.lat,
+                                                  'lon': args.lon,
+                                                  'alt': args.alt,
+                                                  'user': args.user,
+                                                  'clock_type': clock_type,
+                                                  'privacy': args.privacy},
                                   offer_zlib=args.compress,
                                   offer_udp=args.udp,
                                   return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(receiver = receiver, server = server, outputs = outputs, freq=freq)
+    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=freq)
     coordinator.run()
 
 if __name__ == '__main__':
