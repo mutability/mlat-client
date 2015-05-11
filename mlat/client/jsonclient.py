@@ -257,7 +257,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
 
         self.linebuf = []
 
-    def send_json(self, o):
+    def _send_json(self, o):
         #log('Send: {0}', o)
         self.linebuf.append(json.dumps(o, separators=(',', ':')))
 
@@ -283,17 +283,23 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             str(m)))
 
     def send_seen(self, aclist):
-        self.send_json({'seen': ['{0:06x}'.format(icao) for icao in aclist]})
+        self._send_json({'seen': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def send_lost(self, aclist):
-        self.send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
+        self._send_json({'lost': ['{0:06x}'.format(icao) for icao in aclist]})
 
     def send_rate_report(self, report):
         r2 = dict([('{0:06X}'.format(k), round(v, 2)) for k, v in report.items()])
-        self.send_json({'rate_report': r2})
+        self._send_json({'rate_report': r2})
+
+    def send_input_connected(self):
+        self._send_json({'input_connected': 'connected'})
+
+    def send_input_disconnected(self):
+        self._send_json({'input_disconnected': 'disconnected'})
 
     def send_clock_reset(self, message):
-        self.send_json({'clock_reset': message})
+        self._send_json({'clock_reset': message})
 
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
@@ -332,7 +338,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
 
         if self.server_heartbeat_at is not None and self.server_heartbeat_at < now:
             self.server_heartbeat_at = now + self.heartbeat_interval
-            self.send_json({'heartbeat': {'client_time': round(time.time(), 3)}})
+            self._send_json({'heartbeat': {'client_time': round(time.time(), 3)}})
 
     def handle_read(self):
         try:
@@ -436,12 +442,16 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             self.send_sync = self.send_tcp_sync
             self.send_split_sync = self.send_tcp_split_sync
 
-        self.split_sync = response.get('split_sync', False)
+        # turn off the sync method we don't want
+        if response.get('split_sync', False):
+            self.send_sync = None
+        else:
+            self.send_split_sync = None
 
         log('Handshake complete.')
         log('  Compression:       {0}', compress)
         log('  UDP transport:     {0}', self.udp_transport and str(self.udp_transport) or 'disabled')
-        log('  Split sync:        {0}', self.split_sync and 'enabled' or 'disabled')
+        log('  Split sync:        {0}', self.send_split_sync and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request

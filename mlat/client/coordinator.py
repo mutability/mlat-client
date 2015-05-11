@@ -203,10 +203,10 @@ class Coordinator:
     # callbacks from receiver input
 
     def input_connected(self):
-        self.server.send_json({'input_connected': 'OK'})
+        self.server.send_input_connected()
 
     def input_disconnected(self):
-        self.server.send_json({'input_disconnected': 'no longer connected'})
+        self.server.send_input_disconnected()
         # expire everything
         discarded = list(self.aircraft.keys())
         self.aircraft.clear()
@@ -306,7 +306,7 @@ class Coordinator:
 
         ac.recent_adsb_positions += 1
 
-        if self.server.split_sync:
+        if self.server.send_split_sync:
             if not ac.requested:
                 return
 
