@@ -77,12 +77,13 @@ class Coordinator:
 
     # internals
 
-    def run(self):
-        try:
-            self.server.reconnect()
+    def run_forever(self):
+        self.run_until(lambda: False)
 
+    def run_until(self, termination_condition):
+        try:
             next_heartbeat = monotonic_time() + 0.5
-            while True:
+            while not termination_condition():
                 # maybe there are no active sockets and
                 # we're just waiting on a timeout
                 if asyncore.socket_map:
@@ -96,10 +97,8 @@ class Coordinator:
                     self.heartbeat(now)
 
         finally:
-            if self.receiver.socket:
-                self.receiver.disconnect('Client shutting down')
-            if self.server.socket:
-                self.server.disconnect('Client shutting down')
+            self.receiver.disconnect('Client shutting down')
+            self.server.disconnect('Client shutting down')
             for o in self.outputs:
                 o.disconnect()
 

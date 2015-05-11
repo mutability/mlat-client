@@ -188,6 +188,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
 
         self.reset_connection()
 
+    def start(self):
+        self.reconnect()
+
     def reset_connection(self):
         self.readbuf = bytearray()
         self.writebuf = bytearray()

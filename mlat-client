@@ -192,7 +192,9 @@ Local port to listen on for connections that will receive extended results in a 
                                   return_results=(len(outputs) > 0))
 
     coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=freq)
-    coordinator.run()
+
+    server.start()
+    coordinator.run_forever()
 
 if __name__ == '__main__':
     main()
