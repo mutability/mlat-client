@@ -228,8 +228,10 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def fill_uncompressed(self):
         if not self.linebuf:
             return
-        for line in self.linebuf:
-            self.writebuf += (line + '\n').encode('ascii')
+
+        lines = '\n'.join(self.linebuf)
+        self.writebuf.extend(lines.encode('ascii'))
+        self.writebuf.extend(b'\n')
         self.linebuf = []
 
     def fill_zlib(self):
@@ -239,24 +241,25 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         data = bytearray()
         pending = False
         for line in self.linebuf:
-            data += self.compressor.compress((line + '\n').encode('ascii'))
+            data.extend(self.compressor.compress((line + '\n').encode('ascii')))
             pending = True
 
             if len(data) >= 32768:
-                data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
-                assert len(data) < 65536
+                data.extend(self.compressor.flush(zlib.Z_SYNC_FLUSH))
+                assert len(data) < 65540
                 assert data[-4:] == b'\x00\x00\xff\xff'
-                self.writebuf += struct.pack('!H', len(data)-4)
-                self.writebuf += data[:-4]
-                data = ''
+                del data[-4:]
+                self.writebuf.extend(struct.pack('!H', len(data)))
+                self.writebuf.extend(data)
                 pending = False
 
         if pending:
-            data += self.compressor.flush(zlib.Z_SYNC_FLUSH)
-            assert len(data) < 65536
+            data.extend(self.compressor.flush(zlib.Z_SYNC_FLUSH))
+            assert len(data) < 65540
             assert data[-4:] == b'\x00\x00\xff\xff'
-            self.writebuf += struct.pack('!H', len(data)-4)
-            self.writebuf += data[:-4]
+            del data[-4:]
+            self.writebuf.extend(struct.pack('!H', len(data)))
+            self.writebuf.extend(data)
 
         self.linebuf = []
 
