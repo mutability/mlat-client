@@ -1,10 +1,10 @@
-mlat-client (0.1.14~dev) UNRELEASED; urgency=medium
+mlat-client (0.1.14) unstable; urgency=medium
 
   * Fix looping "_modes.ClockResetError" errors after dump1090 restart.
   * Skip 0.1.13 since the 0.1.12 release had the wrong client version
     embedded in the code.
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 31 May 2015 13:24:43 +0100
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 31 May 2015 14:04:28 +0100
 
 mlat-client (0.1.12) unstable; urgency=medium
 
