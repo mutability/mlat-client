@@ -86,6 +86,7 @@ class ReceiverConnection(ReconnectingConnection):
 
     def reset_connection(self):
         self.residual = None
+        self.last_timestamp = 0
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
