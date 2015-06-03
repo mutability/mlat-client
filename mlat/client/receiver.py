@@ -57,7 +57,7 @@ class ReceiverConnection(ReconnectingConnection):
         # so throw away data until we see DLE STX
 
         # look for DLE STX
-        i = data.find('\x10\x02')
+        i = data.find(b'\x10\x02')
         if i == 0:
             # DLE STX at the very start of input, great!
             self.packetize = packetize_sbs_input
@@ -66,7 +66,7 @@ class ReceiverConnection(ReconnectingConnection):
         while i > 0:
             # DLE STX not at the very start
             # check that it's preceeded by a non-DLE
-            if data[i-1] != '\x10':
+            if data[i-1] != 0x10:
                 # Success.
                 self.packetize = packetize_sbs_input
                 consumed, messages = self.packetize(data[i:], start)
@@ -76,7 +76,7 @@ class ReceiverConnection(ReconnectingConnection):
             # packet (the STX could be data following an escaped DLE),
             # skip it.
 
-            i = data.find('\x10\x02', i+2)
+            i = data.find(b'\x10\x02', i+2)
 
         # no luck this time
         if len(data) > 512:
