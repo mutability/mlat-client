@@ -298,7 +298,10 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
                     marker->timestamp = timestamp;
                     messages[message_count++] = (PyObject*)marker;
                 } else if ((last_timestamp - timestamp) > 1000000000ULL) {
-                    PyErr_SetString(PyExc_ClockResetError, "Out of range timestamp seen");
+                    PyErr_Format(PyExc_ClockResetError,
+                                 "Out of range timestamp seen (last %llu, now %llu)",
+                                 (unsigned long long)last_timestamp,
+                                 (unsigned long long)timestamp);
                     goto out;
                 }
             }
@@ -307,7 +310,10 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
              * (dump1090 can hold messages for up to 60 seconds! so be conservative here)
              */
             if (timestamp < last_timestamp && (last_timestamp - timestamp) > 90*12000000ULL) {
-                PyErr_SetString(PyExc_ClockResetError, "Out of range timestamp seen");
+                PyErr_Format(PyExc_ClockResetError,
+                             "Out of range timestamp seen (last %llu, now %llu)",
+                             (unsigned long long)last_timestamp,
+                             (unsigned long long)timestamp);
                 goto out;
             }
         }
