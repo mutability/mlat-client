@@ -436,7 +436,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
     eod = buffer.buf + buffer.len;
     while (p+13 <= eod && message_count < max_messages) {
         int message_len = -1;
-        uint32_t timestamp;
+        uint64_t timestamp;
         /* largest message we care about is:
          *  type      1 byte   0x05 = ADS-B
          *  spare     1 byte
