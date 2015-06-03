@@ -550,13 +550,6 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
             /* little-endian, apparently */
             timestamp = (data[4] << 16) | (data[3] << 8) | (data[2]);
 
-            /* merge in top bits */
-            timestamp = timestamp | (last_timestamp & 0xFFFFFFFFFF000000ULL);
-
-            /* check for rollover */
-            if (timestamp < last_timestamp)
-                timestamp += (1 << 24);
-
             /* Baseless speculation! Let's assume that it's like the Radarcape
              * and measures at the end of the frame.
              *
@@ -565,7 +558,14 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
              * consistently (start of frame + 112us) regardless of the actual
              * frame length.
              */
-            timestamp = timestamp + ((14-message_len) * 160);
+            timestamp = (timestamp + ((14-message_len) * 160)) & 0xFFFFFF;
+
+            /* merge in top bits */
+            timestamp = timestamp | (last_timestamp & 0xFFFFFFFFFF000000ULL);
+
+            /* check for rollover */
+            if (timestamp < last_timestamp)
+                timestamp += (1 << 24);
 
             last_timestamp = timestamp;
 
