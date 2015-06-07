@@ -1,3 +1,10 @@
+mlat-client (0.1.16~dev) UNRELEASED; urgency=medium
+
+  * Workaround for dump1090-mutability issue #47 (a bug when using --modeac that would
+    trigger ClockResetErrors)
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 07 Jun 2015 22:35:43 +0100
+
 mlat-client (0.1.15) unstable; urgency=medium
 
   * Fix "TypeError: expected an object with the buffer interface" and

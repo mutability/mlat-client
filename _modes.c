@@ -310,11 +310,14 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
              * (dump1090 can hold messages for up to 60 seconds! so be conservative here)
              */
             if (timestamp < last_timestamp && (last_timestamp - timestamp) > 90*12000000ULL) {
-                PyErr_Format(PyExc_ClockResetError,
-                             "Out of range timestamp seen (last %llu, now %llu)",
-                             (unsigned long long)last_timestamp,
-                             (unsigned long long)timestamp);
-                goto out;
+                /* work around dump1090-mutability issue #47 which can send very stale Mode A/C messages */
+                if (type != '1') {
+                    PyErr_Format(PyExc_ClockResetError,
+                                 "Out of range timestamp seen (last %llu, now %llu)",
+                                 (unsigned long long)last_timestamp,
+                                 (unsigned long long)timestamp);
+                    goto out;
+                }
             }
         }
 
