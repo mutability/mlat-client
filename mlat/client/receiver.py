@@ -125,7 +125,15 @@ class ReceiverConnection(ReconnectingConnection):
 
         self.last_data_received = monotonic_time()
 
-        consumed, messages = self.packetize(moredata, self.last_timestamp)
+        try:
+            consumed, messages = self.packetize(moredata, self.last_timestamp)
+        except _modes.ClockResetError as e:
+            log("Problem reading receiver messages: " + str(e))
+            log("Ensure that only one receiver is feeding data to this client.")
+            log("A single multilateration client cannot handle data from multiple receivers.")
+            self.close()
+            return
+
         if consumed < len(moredata):
             self.residual = moredata[consumed:]
             if len(self.residual) > 5120:
