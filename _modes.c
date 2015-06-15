@@ -268,6 +268,12 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
             ADVANCE;
         }
 
+        /* heartbeat or message without timestamp? skip it. */
+        if (timestamp == 0) {
+            p = m;
+            continue;
+        }
+
         if (radarcape_gps_mode) {
             /* adjust timestamp so that it is a contiguous nanoseconds-since-
              * midnight value, rather than the raw form which skips values once
