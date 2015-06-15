@@ -1,3 +1,10 @@
+mlat-client (0.1.17) unstable; urgency=medium
+
+  * Handle keepalives and other messages that have a timestamp of zero.
+  * Log a better explanation when a ClockResetError is seen.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 15 Jun 2015 20:17:11 +0100
+
 mlat-client (0.1.16) unstable; urgency=medium
 
   * Workaround for dump1090-mutability issue #47 (a bug when using --modeac that would
