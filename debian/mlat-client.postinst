@@ -57,6 +57,7 @@ case "$1" in
 
         rm -f $SEDSCRIPT
 
+        subvar_yn start-client START_CLIENT
         subvar run-as-user RUN_AS_USER
         subvar server-user SERVER_USER
         subvar log-file LOGFILE

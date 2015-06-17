@@ -6,6 +6,9 @@
 # You can edit this file directly, or use
 # "dpkg-reconfigure mlat-client"
 
+# Start the client?
+START_CLIENT=
+
 # System user to run as.
 RUN_AS_USER=
 

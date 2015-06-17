@@ -1,3 +1,16 @@
+Template: mlat-client/start-client
+Description: Start the standalone multilateration client?
+ The multilateration client can be started automatically in standalone mode
+ based on the answers to these configuration questions.
+ .
+ Enable this if you are connecting to an independent mlat server and you
+ have configuration details for that server.
+ .
+ Disable this if you are providing multilateration data to Flightaware
+ via piaware, or if you will start mlat-client via some other mechanism.
+Type: boolean
+Default: false
+
 Template: mlat-client/run-as-user
 Description: User to run mlat-client as:
  When started automatically, mlat-client runs as an unprivileged system user. 
@@ -23,24 +36,25 @@ Default: /var/log/mlat-client.log
 Template: mlat-client/receiver-lat
 Description: Latitude of receiver, in decimal degrees:
  The multilateration server must know the location of the receiver. This should
- be the position of the antenna, ideally to within about 25m. A four-decimal-place GPS
- location is fine.
+ be the position of the antenna, ideally to within about 25m. A four-decimal-
+ place GPS location is fine.
 Type: string
 Default:
 
 Template: mlat-client/receiver-lon
 Description: Longitude of receiver, in decimal degrees:
  The multilateration server must know the location of the receiver. This should
- be the position of the antenna, ideally to within about 25m. A four-decimal-place GPS
- location is fine.
+ be the position of the antenna, ideally to within about 25m. A four-decimal-
+ place GPS location is fine.
 Type: string
 Default:
 
 Template: mlat-client/receiver-alt
 Description: Altitude of receiver, in metres (height above ellipsoid):
  The multilateration server must know the location of the receiver. This should
- be the position of the antenna, ideally to within about 25m. A GPS-derived altitude is
- fine. This value should be in metres.
+ be the position of the antenna, ideally to within about 25m. A GPS-derived
+ altitude is fine; use the WGS84 uncorrected altitude, not the corrected AMSL
+ altitude. This value should be in metres.
 Type: string
 Default:
 
@@ -93,10 +107,11 @@ Default: 31003
 
 Template: mlat-client/sbs-ext-port
 Description: Port for extended-SBS-format output connections (0 disables):
- The multilateration client can return the calculated aircraft positions in an extended version
- of the Basestation format. This extended version include the number of stations used to find
- the position, and the geometric dilution of precision. Usually only interesting if you arew
- processing the data yourself (standard clients will not understand the extended format).
+ The multilateration client can return the calculated aircraft positions in an
+ extended version of the Basestation format. This extended version include the
+ number of stations used to find the position, and the geometric dilution of
+ precision. Usually only interesting if you are processing the data yourself
+ (standard clients will not understand the extended format).
 Type: string
 Default: 0
 

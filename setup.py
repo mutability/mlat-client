@@ -21,10 +21,10 @@ from distutils.core import setup, Extension
 modes_ext = Extension('_modes', sources=['_modes.c'])
 
 setup(name='MlatClient',
-      version='0.1.12~dev',
+      version='0.2.0',
       description='Multilateration client package',
       author='Oliver Jowett',
       author_email='oliver@mutability.co.uk',
-      packages=['mlat', 'mlat.client'],
+      packages=['mlat', 'mlat.client', 'flightaware', 'flightaware.client'],
       ext_modules=[modes_ext],
-      scripts=['mlat-client'])
+      scripts=['mlat-client', 'fa-mlat-client'])

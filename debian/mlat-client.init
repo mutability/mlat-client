@@ -17,7 +17,7 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="mlat-client daemon"
 NAME=mlat-client
-DAEMON=/usr/bin/$NAME
+DAEMON=/usr/bin/mlat-client
 ARGS=""
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
@@ -32,6 +32,7 @@ SCRIPTNAME=/etc/init.d/$NAME
 
 # sanitize missing settings
 badconfig=0
+[ -z "$START_CLIENT" ] && START_CLIENT=no
 [ -z "$RUN_AS_USER" ] && RUN_AS_USER="missing-RUN_AS_USER-setting-in-config"
 [ -z "$SERVER_USER" ] && badconfig=1
 [ -z "$SBS_PORT" ] && SBS_PORT=0
@@ -65,6 +66,11 @@ do_start()
 	#   0 if daemon has been started
 	#   1 if daemon was already running
 	#   2 if daemon could not be started
+
+        if [ "x$START_CLIENT" != "xyes" ]; then
+            log_warning_msg "Not starting $NAME daemon, disabled via /etc/default/$NAME"
+            return 2
+        fi
 
         if [ "$badconfig" = 1 ]; then
             log_warning_msg "Not starting $NAME daemon, missing configuration options"

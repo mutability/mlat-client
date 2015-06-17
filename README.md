@@ -4,8 +4,12 @@ This is a client that selectively forwards Mode S messages to a
 server that resolves the transmitter position by multilateration of the same
 message received by multiple clients.
 
-The server code is not yet released so the client on its own is not hugely
-useful. Patience..
+The corresponding server code is available (or will be, shortly) at
+https://github.com/mutability/mlat-server.
+
+There is also support for running in a mode used to feed multilateration
+information to FlightAware via piaware. In this mode, the client is started
+automatically by piaware.
 
 ## Building
 
@@ -20,8 +24,12 @@ To build/install on other systems using setuptools (client only):
 
 ## Running
 
-Please [contact Oliver](mailto:oliver@mutability.co.uk) before connecting with
-this client as the server is - at best - experimental.
+If you are using this with piaware, you don't need to do anything special
+other than to make sure that fa-mlat-client is available on your $PATH.
+piaware will detect the presence of the client and start it when needed.
+
+If you are connecting to a third party multilateration server, contact the
+server's administrator for configuration instructions.
 
 ## License
 
