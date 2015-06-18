@@ -4,35 +4,20 @@
 # FlightAware multilateration client
 
 import sys
-import time
 import argparse
 import traceback
 
-import mlat.client.util
-
-
-# replace standard logging with our own versions early on so the output meshes nicely with piaware's logging
-def log(msg, *args, **kwargs):
-    print(time.strftime('%m/%d/%Y %H:%M:%S', time.gmtime()), 'mlat:', msg.format(*args, **kwargs), file=sys.stderr)
-    sys.stderr.flush()
-mlat.client.util.log = log
-
-
-def log_exc(msg, *args, **kwargs):
-    print(time.strftime('%m/%d/%Y %H:%M:%S', time.gmtime()), 'mlat:', msg.format(*args, **kwargs), file=sys.stderr)
-    traceback.print_exc(file=sys.stderr)
-    sys.stderr.flush()
-mlat.client.util.log_exc = log_exc
-
-
 import mlat.client.version
-
 from mlat.client.receiver import ReceiverConnection
 from flightaware.client.adeptclient import AdeptConnection, UdpServerConnection
 from mlat.client.coordinator import Coordinator
+from mlat.client.util import log
 
 
 def main():
+    # piaware will timestamp our log messages itself, suppress the normal logging timestamps
+    mlat.client.util.suppress_log_timestamps = True
+
     def port(s):
         port = int(s)
         if port < 1 or port > 65535:

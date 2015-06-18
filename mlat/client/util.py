@@ -24,13 +24,22 @@ import traceback
 __all__ = ('log', 'log_exc', 'monotonic_time')
 
 
+suppress_log_timestamps = False
+
+
 def log(msg, *args, **kwargs):
-    print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
+    if suppress_log_timestamps:
+        print(msg.format(*args, **kwargs), file=sys.stderr)
+    else:
+        print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
     sys.stderr.flush()
 
 
 def log_exc(msg, *args, **kwargs):
-    print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
+    if suppress_log_timestamps:
+        print(msg.format(*args, **kwargs), file=sys.stderr)
+    else:
+        print(time.ctime(), msg.format(*args, **kwargs), file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
 
