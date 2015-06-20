@@ -18,6 +18,10 @@ and startup scripts:
 
     $ dpkg-buildpackage -b
 
+This will build a .deb package in the parent directory. Install it with dpkg:
+
+    $ sudo dpkg -i ../mlat-client_(version)_(architecture).deb
+
 To build/install on other systems using setuptools (client only):
 
     $ ./setup.py install
