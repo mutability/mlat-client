@@ -1,3 +1,10 @@
+mlat-client (0.2.1) UNRELEASED; urgency=medium
+
+  * Add Breaks/Replaces for piaware versions that also provide
+    /usr/bin/fa-mlat-client (piaware 2.0-5 stops providing this)
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 20 Jun 2015 23:47:46 +0100
+
 mlat-client (0.2.0) unstable; urgency=medium
 
   * Integrate the Flightaware version of the client into the main release.

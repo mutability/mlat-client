@@ -11,6 +11,8 @@ Vcs-Git: https://github.com/mutability/mlat-client.git
 Package: mlat-client
 Architecture: any
 Depends: ${shlibs:Depends}, ${python3:Depends}, ${misc:Depends}, adduser
+Breaks: piaware (= 2.0-1), piaware (= 2.0-2), piaware (= 2.0-3), piaware (= 2.0-4)
+Replaces: piaware (= 2.0-1), piaware (= 2.0-2), piaware (= 2.0-3), piaware (= 2.0-4)
 Description: ADS-B multilateration client.
  mlat-client feeds selected messages from an ADS-B receiver
  to a multilateration server, and provides access to the results
