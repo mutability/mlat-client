@@ -63,7 +63,7 @@ static PyObject *modesmessage_from_buffer(unsigned long long timestamp, unsigned
 static int modesmessage_decode(modesmessage *self);
 
 static void init_crc_table(void);
-static uint32_t calculate_crc(uint8_t *buf, int len);
+static uint32_t calculate_crc(uint8_t *buf, Py_ssize_t len);
 static PyObject *crc_residual(PyObject *self, PyObject *args);
 static PyObject *packetize_beast_input(PyObject *self, PyObject *args);
 static PyObject *packetize_radarcape_input(PyObject *self, PyObject *args);
@@ -100,10 +100,10 @@ static void init_crc_table(void)
     }
 }
 
-static uint32_t calculate_crc(uint8_t *buf, int len)
+static uint32_t calculate_crc(uint8_t *buf, Py_ssize_t len)
 {
     uint32_t rem;
-    int i;
+    Py_ssize_t i;
     for (rem = 0, i = len-3; i > 0; --i) {
         rem = ((rem & 0x00ffff) << 8) ^ crc_table[*buf++ ^ ((rem & 0xff0000) >> 16)];
     }
@@ -166,7 +166,7 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
 {
     Py_buffer buffer;
     PyObject *rv = NULL;
-    uint8_t *p, *eod;
+    uint8_t *buffer_start, *p, *eod;
     int message_count = 0, max_messages = 0;
     PyObject *message_tuple = NULL;
     PyObject **messages = NULL;
@@ -186,6 +186,8 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
         goto out;
     }
 
+    buffer_start = buffer.buf;
+
     /* allocate the maximum size we might need, given a minimal encoding of:
      *   <1A> <'1'> <6 bytes timestamp> <1 byte signal> <2 bytes message> = 11 bytes total
      */
@@ -199,8 +201,8 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
 
     /* parse messages */
     last_timestamp = (uint64_t) starting_timestamp;
-    p = buffer.buf;
-    eod = buffer.buf + buffer.len;
+    p = buffer_start;
+    eod = buffer_start + buffer.len;
     while (p+2 <= eod && message_count+1 < max_messages) {
         int message_len = -1;
         uint64_t timestamp;
@@ -211,7 +213,7 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
         uint8_t type;
 
         if (p[0] != 0x1a) {
-            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected a 0x1A marker at offset %d but found 0x%02x instead", (int) ((void*)p-buffer.buf), (int)p[0]);
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected a 0x1A marker at offset %d but found 0x%02x instead", (int) (p - buffer_start), (int)p[0]);
             goto out;
         }
 
@@ -222,7 +224,7 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
         case '3': message_len = 14; break;
         case '4': message_len = 14; break;
         default:
-            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected message type 0x%02x after 0x1A marker at offset %d", (int)p[1], (int) ((void*)p-buffer.buf));
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected message type 0x%02x after 0x1A marker at offset %d", (int)p[1], (int) (p - buffer_start));
             goto out;
         }
 
@@ -358,7 +360,7 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
         PyTuple_SET_ITEM(message_tuple, message_count, messages[message_count]); /* steals ref */
     }
     
-    rv = Py_BuildValue("(lN)", (long) ((void*)p - buffer.buf), message_tuple);
+    rv = Py_BuildValue("(lN)", (long) (p - buffer_start), message_tuple);
 
  out:
     while (--message_count >= 0) {
@@ -408,7 +410,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
 {
     Py_buffer buffer;
     PyObject *rv = NULL;
-    uint8_t *p, *eod;
+    uint8_t *buffer_start, *p, *eod;
     int message_count = 0, max_messages = 0;
     PyObject *message_tuple = NULL;
     PyObject **messages = NULL;
@@ -428,6 +430,8 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
         goto out;
     }
 
+    buffer_start = buffer.buf;
+
     /* allocate the maximum size we might need, given a minimal encoding of:
      *   <DLE> <STX> <0x09> <n/a> <3 bytes timestamp> <2 bytes message> <DLE> <ETX> <2 bytes CRC> = 13 bytes total
      */
@@ -441,8 +445,8 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
 
     /* parse messages */
     last_timestamp = (uint64_t) starting_timestamp;
-    p = buffer.buf;
-    eod = buffer.buf + buffer.len;
+    p = buffer_start;
+    eod = buffer_start + buffer.len;
     while (p+13 <= eod && message_count < max_messages) {
         int message_len = -1;
         uint64_t timestamp;
@@ -459,7 +463,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
         uint8_t type;
 
         if (p[0] != 0x10 || p[1] != 0x02) {
-            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected DLE STX at offset %d but found 0x%02x 0x%02x instead", (int) ((void*)p-buffer.buf), (int)p[0], (int)p[1]);
+            PyErr_Format(PyExc_ValueError, "Lost sync with input stream: expected DLE STX at offset %d but found 0x%02x 0x%02x instead", (int) (p - buffer_start), (int)p[0], (int)p[1]);
             goto out;
         }
 
@@ -477,7 +481,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
                 }
 
                 if (m[1] != 0x10) {
-                    PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)m[1]);
+                    PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) (m - buffer_start), (int)m[1]);
                     goto out;
                 }
 
@@ -500,7 +504,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
             if (m >= eod)
                 goto nomoredata;
             if (m[0] != 0x10) {
-                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)*m);
+                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) (m - buffer_start), (int)*m);
                 goto out;
             }
             ++m;
@@ -513,7 +517,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
             if (m >= eod)
                 goto nomoredata;
             if (m[0] != 0x10) {
-                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) ((void*)m-buffer.buf), (int)*m);
+                PyErr_Format(PyExc_ValueError, "Lost sync with input stream: unexpected DLE 0x%02x at offset %d", (int) (m - buffer_start), (int)*m);
                 goto out;
             }
             ++m;
@@ -599,7 +603,7 @@ static PyObject *packetize_sbs_input(PyObject *self, PyObject *args)
         PyTuple_SET_ITEM(message_tuple, message_count, messages[message_count]); /* steals ref */
     }
 
-    rv = Py_BuildValue("(lN)", (long) ((void*)p - buffer.buf), message_tuple);
+    rv = Py_BuildValue("(lN)", (long) (p - buffer_start), message_tuple);
 
  out:
     while (--message_count >= 0) {

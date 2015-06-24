@@ -17,11 +17,20 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from distutils.core import setup, Extension
+from distutils.ccompiler import get_default_compiler
 
-modes_ext = Extension('_modes', sources=['_modes.c'])
+more_warnings = False
+extra_compile_args = []
+if more_warnings and get_default_compiler() == 'unix':
+    # let's assume this is GCC
+    extra_compile_args.append('-Wpointer-arith')
+
+modes_ext = Extension('_modes',
+                      sources=['_modes.c'],
+                      extra_compile_args=extra_compile_args)
 
 setup(name='MlatClient',
-      version='0.2.0',
+      version='0.2.1',
       description='Multilateration client package',
       author='Oliver Jowett',
       author_email='oliver@mutability.co.uk',
