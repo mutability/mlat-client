@@ -25,6 +25,11 @@
 
 /* prototypes and definitions */
 
+/* A timestamp that indicates the data is synthetic, created from a
+ * multilateration result
+ */
+#define MAGIC_MLAT_TIMESTAMP 0xFF01A71A71A7ULL
+
 typedef struct {
     PyObject_HEAD
 
@@ -270,8 +275,8 @@ static PyObject *packetize_beast_or_radarcape_input(PyObject *self, PyObject *ar
             ADVANCE;
         }
 
-        /* heartbeat or message without timestamp? skip it. */
-        if (timestamp == 0) {
+        /* heartbeat, message without timestamp, or synthetic mlat timestamp? skip it. */
+        if (timestamp == 0 || timestamp == MAGIC_MLAT_TIMESTAMP) {
             p = m;
             continue;
         }
