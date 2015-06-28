@@ -1,9 +1,9 @@
-mlat-client (0.2.1) UNRELEASED; urgency=medium
+mlat-client (0.2.1) unstable; urgency=medium
 
   * Add Breaks/Replaces for piaware versions that also provide
     /usr/bin/fa-mlat-client (piaware 2.0-5 stops providing this)
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Sat, 20 Jun 2015 23:47:46 +0100
+ -- Oliver Jowett <oliver@mutability.co.uk>  Sun, 28 Jun 2015 12:05:22 +0100
 
 mlat-client (0.2.0) unstable; urgency=medium
 
