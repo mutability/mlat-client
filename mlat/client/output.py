@@ -51,7 +51,7 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
 
         self.output_channels.add(self.connection_factory(self, new_socket, address))
 
-    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations):
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations):
         for channel in list(self.output_channels):
             channel.send_position(timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations)
 
