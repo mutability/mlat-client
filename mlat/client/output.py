@@ -53,7 +53,7 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations):
         for channel in list(self.output_channels):
-            channel.send_position(timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations)
+            channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations)
 
     def heartbeat(self, now):
         for channel in list(self.output_channels):
@@ -115,8 +115,17 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
         log('Lost SBS output connection from {0}:{1}', self.addr[0], self.addr[1])
         self.close()
 
-    def send_position(self, timestamp, addr, lat, lon, alt, callsign, squawk, error_est, nstations):
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations):
         now = time.time()
+
+        if nsvel is not None and ewvel is not None:
+            speed = math.sqrt(nsvel ** 2 + ewvel ** 2)
+            heading = math.degrees(math.atan2(ewvel, nsvel))
+            if heading < 0:
+                heading += 360
+        else:
+            speed = None
+            heading = None
 
         line = self.template.format(addr=addr,
                                     rcv_date=format_date(timestamp),
@@ -125,11 +134,11 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
                                     now_time=format_time(now),
                                     callsign=csv_quote(callsign) if callsign else '',
                                     altitude=int(alt),
-                                    speed='',
-                                    heading='',
+                                    speed=round(speed,1) if (speed is not None) else '',
+                                    heading=int(heading) if (heading is not None) else '',
                                     lat=round(lat, 4),
                                     lon=round(lon, 4),
-                                    vrate='',
+                                    vrate=vrate if (vrate is not None) else '',
                                     squawk=csv_quote(squawk) if squawk else '',
                                     fs='',
                                     emerg='',
