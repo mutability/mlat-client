@@ -21,9 +21,11 @@ import asyncore
 import socket
 import time
 import math
+import errno
 
-from mlat.client.net import LoggingMixin
+from mlat.client.net import LoggingMixin, ReconnectingConnection
 from mlat.client.util import log, monotonic_time
+from mlat.client.df17 import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame
 
 
 class SBSListener(LoggingMixin, asyncore.dispatcher):
@@ -161,3 +163,92 @@ class SBSExtendedConnection(SBSConnection):
     @staticmethod
     def describe():
         return 'extended-format SBS connection'
+
+
+class OutgoingBeastConnection(ReconnectingConnection):
+    def __init__(self, host, port):
+        ReconnectingConnection.__init__(self, host, port)
+        self.writebuf = None
+        self.last_write = None
+
+        self.reconnect()
+
+    def reset_connection(self):
+        self.writebuf = bytearray()
+
+    def start_connection(self):
+        log('Output connection for mlat results established to {0}:{1}', self.host, self.port)
+        self.state = 'ready'
+        self.last_write = monotonic_time()
+
+    def lost_connection(self):
+        pass
+
+    def heartbeat(self, now):
+        ReconnectingConnection.heartbeat(self, now)
+
+        if self.state == 'ready':
+            if (now - self.last_write) > 60.0:
+                # write a keepalive frame
+                self.writebuf.extend(b'\x1A2\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+                self.last_write = now
+
+    def handle_read(self):
+        try:
+            moredata = self.recv(16384)
+        except socket.error as e:
+            if e.errno == errno.EAGAIN:
+                return
+            raise
+
+        if not moredata:
+            self.close()
+            return
+
+    def writable(self):
+        return self.connecting or self.writebuf
+
+    def handle_write(self):
+        try:
+            sent = self.send(self.writebuf)
+            del self.writebuf[0:sent]
+        except socket.error as e:
+            if e.errno == errno.EAGAIN:
+                return
+            raise
+
+    def send_frame(self, frame):
+        """Send a 14-byte message in the Beast binary format, using the magic mlat timestamp"""
+
+        # format:
+        #  1A '3'       long frame follows
+        #  FF 00 'MLAT' 6-byte timestamp, this is the magic MLAT timestamp
+        #  00           signal level
+        #  ...          14 bytes of frame data, with 1A bytes doubled
+
+        self.writebuf.extend(b'\x1A3\xFF\x00MLAT\x00')
+        if b'\x1a' not in frame:
+            self.writebuf.extend(frame)
+        else:
+            for b in frame:
+                if b == 0x1A:
+                    self.writebuf.append(b)
+                self.writebuf.append(b)
+
+        self.last_write = monotonic_time()
+
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                      callsign, squawk, error_est, nstations):
+        if self.state != 'ready':
+            return
+
+        if lat is None or lon is None:
+            if alt is not None:
+                self.send_frame(make_altitude_only_frame(addr, alt))
+        else:
+            even, odd = make_position_frame_pair(addr, lat, lon, alt)
+            self.send_frame(even)
+            self.send_frame(odd)
+
+        if nsvel is not None or ewvel is not None or vrate is not None:
+            self.send_frame(make_velocity_frame(addr, nsvel, ewvel, vrate))
