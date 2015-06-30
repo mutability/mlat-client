@@ -166,7 +166,8 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
 
         self.handlers = {
             'mlat_wanted': self.process_wanted_message,
-            'mlat_unwanted': self.process_unwanted_message
+            'mlat_unwanted': self.process_unwanted_message,
+            'mlat_result': self.process_result_message
         }
 
     def readable(self):
@@ -231,6 +232,20 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
         else:
             unwanted = {int(x, 16) for x in message['hexids'].split(' ')}
         self.coordinator.server_stop_sending(unwanted)
+
+    def process_result_message(self, message):
+        self.coordinator.server_mlat_result(timestamp=None,
+                                            addr=int(message['hexid'], 16),
+                                            lat=float(message['lat']),
+                                            lon=float(message['lon']),
+                                            alt=float(message['alt']),
+                                            nsvel=float(message['nsvel']),
+                                            ewvel=float(message['ewvel']),
+                                            vrate=float(message['fpm']),
+                                            callsign=None,
+                                            squawk=None,
+                                            error_est=None,
+                                            nstations=None)
 
 
 class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
