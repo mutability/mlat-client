@@ -59,7 +59,7 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
         for channel in list(self.output_channels):
             channel.heartbeat(now)
 
-    def disconnect(self):
+    def disconnect(self, reason=None):
         for channel in list(self.output_channels):
             channel.close()
         self.close()

@@ -100,7 +100,7 @@ class Coordinator:
             self.receiver.disconnect('Client shutting down')
             self.server.disconnect('Client shutting down')
             for o in self.outputs:
-                o.disconnect()
+                o.disconnect('Client shutting down')
 
     def heartbeat(self, now):
         self.receiver.heartbeat(now)
