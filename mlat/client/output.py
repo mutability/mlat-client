@@ -16,19 +16,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+import sys
 import asyncore
 import socket
 import time
 import math
 import errno
 
-from mlat.client.net import LoggingMixin, ReconnectingConnection
+from mlat.client.net import LoggingMixin
 from mlat.client.util import log, monotonic_time
 from mlat.client.df17 import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame
 
 
-class SBSListener(LoggingMixin, asyncore.dispatcher):
+class OutputListener(LoggingMixin, asyncore.dispatcher):
     def __init__(self, port, connection_factory):
         asyncore.dispatcher.__init__(self)
         self.port = port
@@ -53,9 +53,11 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
 
         self.output_channels.add(self.connection_factory(self, new_socket, address))
 
-    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations):
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                      callsign, squawk, error_est, nstations):
         for channel in list(self.output_channels):
-            channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations)
+            channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                                  callsign, squawk, error_est, nstations)
 
     def heartbeat(self, now):
         for channel in list(self.output_channels):
@@ -65,6 +67,45 @@ class SBSListener(LoggingMixin, asyncore.dispatcher):
         for channel in list(self.output_channels):
             channel.close()
         self.close()
+
+    def connection_lost(self, child):
+        self.output_channels.discard(child)
+
+
+class OutputConnector:
+    reconnect_interval = 30.0
+
+    def __init__(self, addr, connection_factory):
+        self.addr = addr
+        self.connection_factory = connection_factory
+
+        self.output_channel = None
+        self.next_reconnect = monotonic_time()
+
+    def reconnect(self):
+        self.output_channel = self.connection_factory(self, None, self.addr)
+        self.output_channel.connect_now()
+
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                      callsign, squawk, error_est, nstations):
+        if self.output_channel:
+            self.output_channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                                              callsign, squawk, error_est, nstations)
+
+    def heartbeat(self, now):
+        if self.output_channel:
+            self.output_channel.heartbeat(now)
+        elif now > self.next_reconnect:
+            self.reconnect()
+
+    def disconnect(self, reason=None):
+        if self.output_channel:
+            self.output_channel.close()
+
+    def connection_lost(self, child):
+        if self.output_channel is child:
+            self.output_channel = None
+            self.next_reconnect = monotonic_time() + self.reconnect_interval
 
 
 def format_time(timestamp):
@@ -84,19 +125,82 @@ def csv_quote(s):
         return '"' + s.replace('"', '""') + '"'
 
 
-class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
+class BasicConnection(LoggingMixin, asyncore.dispatcher):
+    def __init__(self, listener, socket, addr):
+        super().__init__(sock=socket)
+        self.listener = listener
+        self.addr = addr
+        self.writebuf = bytearray()
+
+    def log(self, fmt, *args, **kwargs):
+        log('{what} with {addr[0]}:{addr[1]}: ' + fmt, *args, what=self.describe(), addr=self.addr, **kwargs)
+
+    def readable(self):
+        return True
+
+    def handle_connect(self):
+        self.log('connection established')
+
+    def handle_read(self):
+        try:
+            self.recv(1024)  # discarded
+        except socket.error as e:
+            self.log('{ex!s}', ex=e)
+            self.close()
+
+    def writable(self):
+        return self.connecting or self.writebuf
+
+    def handle_write(self):
+        try:
+            sent = super().send(self.writebuf)
+            del self.writebuf[0:sent]
+        except socket.error as e:
+            if e.errno == errno.EAGAIN:
+                return
+            self.log('{ex!s}', ex=e)
+            self.close()
+
+    def handle_close(self):
+        if self.connected:
+            self.log('connection lost')
+        self.close()
+
+    def close(self):
+        super().close()
+        self.listener.connection_lost(self)
+
+    def handle_error(self):
+        t, v, tb = sys.exc_info()
+        self.log('{ex!s}', ex=v)
+        self.handle_close()
+
+    def connect_now(self):
+        if self.socket:
+            return
+
+        try:
+            self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.connect(self.addr)
+        except socket.error as e:
+            self.log('{ex!s}', ex=e)
+            self.close()
+
+    def send(self, data):
+        self.writebuf.extend(data)
+
+
+class BasestationConnection(BasicConnection):
     heartbeat_interval = 30.0
     template = 'MSG,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'  # noqa
 
     def __init__(self, listener, socket, addr):
-        asyncore.dispatcher_with_send.__init__(self, sock=socket)
-        self.listener = listener
-        self.addr = addr
+        super().__init__(listener, socket, addr)
         self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
     @staticmethod
     def describe():
-        return 'SBS connection'
+        return 'Basestation-format results connection'
 
     def heartbeat(self, now):
         if now > self.next_heartbeat:
@@ -106,18 +210,11 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
             except socket.error:
                 self.handle_error()
 
-    def close(self):
-        asyncore.dispatcher_with_send.close(self)
-        self.listener.output_channels.discard(self)
+    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
+                      callsign, squawk, error_est, nstations):
+        if not self.connected:
+            return
 
-    def handle_read(self):
-        self.recv(1024)  # discarded
-
-    def handle_close(self):
-        log('Lost SBS output connection from {0}:{1}', self.addr[0], self.addr[1])
-        self.close()
-
-    def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate, callsign, squawk, error_est, nstations):
         now = time.time()
 
         if nsvel is not None and ewvel is not None:
@@ -136,7 +233,7 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
                                     now_time=format_time(now),
                                     callsign=csv_quote(callsign) if callsign else '',
                                     altitude=int(alt),
-                                    speed=round(speed,1) if (speed is not None) else '',
+                                    speed=round(speed, 1) if (speed is not None) else '',
                                     heading=int(heading) if (heading is not None) else '',
                                     lat=round(lat, 4),
                                     lon=round(lon, 4),
@@ -149,73 +246,35 @@ class SBSConnection(LoggingMixin, asyncore.dispatcher_with_send):
                                     error_est=error_est,
                                     nstations=nstations)
 
-        try:
-            self.send((line + '\n').encode('ascii'))
-        except socket.error:
-            self.handle_error()
-
+        self.send((line + '\n').encode('ascii'))
         self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
 
-class SBSExtendedConnection(SBSConnection):
+class ExtBasestationConnection(BasestationConnection):
     template = 'MLAT,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est:.0f}'  # noqa
 
     @staticmethod
     def describe():
-        return 'extended-format SBS connection'
+        return 'Extended Basestation-format results connection'
 
 
-class OutgoingBeastConnection(ReconnectingConnection):
-    def __init__(self, host, port):
-        ReconnectingConnection.__init__(self, host, port)
-        self.writebuf = None
-        self.last_write = None
+class BeastConnection(BasicConnection):
+    heartbeat_interval = 30.0
 
-        self.reconnect()
+    @staticmethod
+    def describe():
+        return 'Beast-format results connection'
 
-    def reset_connection(self):
+    def __init__(self, listener, socket, addr):
+        super().__init__(listener, socket, addr)
         self.writebuf = bytearray()
-
-    def start_connection(self):
-        log('Output connection for mlat results established to {0}:{1}', self.host, self.port)
-        self.state = 'ready'
         self.last_write = monotonic_time()
 
-    def lost_connection(self):
-        pass
-
     def heartbeat(self, now):
-        ReconnectingConnection.heartbeat(self, now)
-
-        if self.state == 'ready':
-            if (now - self.last_write) > 60.0:
-                # write a keepalive frame
-                self.writebuf.extend(b'\x1A2\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-                self.last_write = now
-
-    def handle_read(self):
-        try:
-            moredata = self.recv(16384)
-        except socket.error as e:
-            if e.errno == errno.EAGAIN:
-                return
-            raise
-
-        if not moredata:
-            self.close()
-            return
-
-    def writable(self):
-        return self.connecting or self.writebuf
-
-    def handle_write(self):
-        try:
-            sent = self.send(self.writebuf)
-            del self.writebuf[0:sent]
-        except socket.error as e:
-            if e.errno == errno.EAGAIN:
-                return
-            raise
+        if (now - self.last_write) > 60.0:
+            # write a keepalive frame
+            self.send(b'\x1A1\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+            self.last_write = now
 
     def send_frame(self, frame):
         """Send a 14-byte message in the Beast binary format, using the magic mlat timestamp"""
@@ -239,7 +298,7 @@ class OutgoingBeastConnection(ReconnectingConnection):
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
                       callsign, squawk, error_est, nstations):
-        if self.state != 'ready':
+        if not self.connected:
             return
 
         if lat is None or lon is None:

@@ -17,11 +17,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import sys
-
-if __name__ == '__main__':
-    print('Hang on while I load everything (takes a few seconds on a Pi)..', file=sys.stderr)
-
 import argparse
 
 import mlat.client.version
@@ -30,80 +25,28 @@ from mlat.client.util import log
 from mlat.client.receiver import ReceiverConnection
 from mlat.client.jsonclient import JsonServerConnection
 from mlat.client.coordinator import Coordinator
-from mlat.client.output import SBSListener, SBSConnection, SBSExtendedConnection
+from mlat.client import options
 
 
 def main():
-    def latitude(s):
-        lat = float(s)
-        if lat < -90 or lat > 90:
-            raise argparse.ArgumentTypeError('Latitude %s must be in the range -90 to 90' % s)
-        return lat
-
-    def longitude(s):
-        lon = float(s)
-        if lon < -180 or lon > 360:
-            raise argparse.ArgumentTypeError('Longitude %s must be in the range -180 to 360' % s)
-        if lon > 180:
-            lon -= 360
-        return lon
-
-    def altitude(s):
-        if s.endswith('m'):
-            alt = float(s[:-1])
-        elif s.endswith('ft'):
-            alt = float(s[:-2]) * 0.3048
-        else:
-            alt = float(s)
-
-        # Wikipedia to the rescue!
-        # "The lowest point on dry land is the shore of the Dead Sea [...]
-        # 418m below sea level". Perhaps not the best spot for a receiver?
-        # La Rinconada, Peru, pop. 30,000, is at 5100m.
-        if alt < -420 or alt > 5100:
-            raise argparse.ArgumentTypeError('Altitude %s must be in the range -420m to 6000m' % s)
-        return alt
-
-    def port(s):
-        port = int(s)
-        if port < 1 or port > 65535:
-            raise argparse.ArgumentTypeError('Port %s must be in the range 1 to 65535' % s)
-        return port
-
-    def percentage(s):
-        p = int(s)
-        if p < 0 or p > 100:
-            raise argparse.ArgumentTypeError('Percentage %s must be in the range 0 to 100' % s)
-        return p / 100.0
-
-    receiver_types = {
-        # input type -> clock frequency, server clock type, connection type
-
-        # "dump1090" / "beast" / "radarcape_12mhz" are functionally equivalent for the client,
-        # but telling the server the difference lets it apply different parameters for clock
-        # error / max drift
-        'dump1090': (12000000, 'dump1090', 'beast'),
-        'beast': (12000000, 'beast', 'beast'),
-        'radarcape_12mhz': (12000000, 'radarcape_12mhz', 'beast'),
-        'radarcape_gps': (1000000000, 'radarcape_gps', 'radarcape'),
-        'sbs': (20000000, 'sbs', 'sbs')
-    }
-
     parser = argparse.ArgumentParser(description="Client for multilateration.")
+
+    options.make_inputs_group(parser)
+    options.make_results_group(parser)
 
     location = parser.add_argument_group('Receiver location')
     location.add_argument('--lat',
-                          type=latitude,
+                          type=options.latitude,
                           help="Latitude of the receiver, in decimal degrees. Required.",
                           required=True)
     location.add_argument('--lon',
-                          type=longitude,
+                          type=options.longitude,
                           help="Longitude of the receiver, in decimal degrees. Required.",
                           required=True)
     location.add_argument('--alt',
-                          type=altitude,
+                          type=options.altitude,
                           help="""
-Altitude of the receiver (AMSL).  Required. Defaults to metres, but units may
+Altitude of the receiver (height above ellipsoid).  Required. Defaults to metres, but units may
 specified with a 'ft' or 'm' suffix. (Except if they're negative due to option
 parser weirdness. Sorry!)""",
                           required=True)
@@ -114,84 +57,40 @@ location pin from the coverage maps.""",
                           action='store_true',
                           default=False)
 
-    inputs = parser.add_argument_group('Mode S receiver input connection')
-    inputs.add_argument('--input-type',
-                        help="Sets the input receiver type.",
-                        choices=receiver_types.keys(),
-                        default='dump1090')
-    inputs.add_argument('--clock-type',
-                        dest='input_type',
-                        help="Compatibility alias for --input-type.",
-                        choices=receiver_types.keys())
-    inputs.add_argument('--input-host',
-                        help="Host (IP or hostname) to connect to for Mode S traffic.  Required.",
+    server = parser.add_argument_group('Multilateration server connection')
+    server.add_argument('--user',
+                        help="User information to give to the server. Used to get in touch if there are problems.",
                         required=True)
-    inputs.add_argument('--input-port',
-                        help="""
-Port to connect to for Mode S traffic. For SBS receivers, use port 30006.
-For Radarcape receivers, use port 10002.""",
-                        type=port,
-                        default=30005)
-
-    outputs = parser.add_argument_group('Multilateration server connection')
-    outputs.add_argument('--user',
-                         help="""
-User information to give to the server. Used to get in touch if there are
-problems.""",
-                         required=True)
-    outputs.add_argument('--output-host',
-                         help="Host (IP or hostname) of the multilateration server",
-                         default="mlat.mutability.co.uk")
-    outputs.add_argument('--output-port',
-                         help="Port of the multilateration server",
-                         type=port,
-                         default=40147)
-    outputs.add_argument('--no-compression',
-                         dest='compress',
-                         help="Don't offer to use zlib compression to the multilateration server",
-                         action='store_false',
-                         default=True)
-    outputs.add_argument('--no-udp',
-                         dest='udp',
-                         help="Don't offer to use UDP transport for sync/mlat messages",
-                         action='store_false',
-                         default=True)
-
-    results = parser.add_argument_group('Results output')
-    results.add_argument('--sbs-port',
-                         help="""
-Local port to listen on for connections that will receive Basestation 'port 30003'-format results.""",
-                         type=port)
-    results.add_argument('--sbs-ext-port',
-                         help="""
-Local port to listen on for connections that will receive extended results in a Basestation-like format""",
-                         type=port)
+    server.add_argument('--server',
+                        help="host:port of the multilateration server to connect to",
+                        type=options.hostport,
+                        default=('mlat.mutability.co.uk', 40147))
+    server.add_argument('--no-udp',
+                        dest='udp',
+                        help="Don't offer to use UDP transport for sync/mlat messages",
+                        action='store_false',
+                        default=True)
 
     args = parser.parse_args()
 
     log("mlat-client {version} starting up", version=mlat.client.version.CLIENT_VERSION)
 
-    outputs = []
-    if args.sbs_port:
-        outputs.append(SBSListener(args.sbs_port, SBSConnection))
-    if args.sbs_ext_port:
-        outputs.append(SBSListener(args.sbs_ext_port, SBSExtendedConnection))
+    outputs = options.build_outputs(args)
 
-    freq, clock_type, conn_type = receiver_types[args.input_type]
-
-    receiver = ReceiverConnection(host=args.input_host, port=args.input_port, connection_type=conn_type)
-    server = JsonServerConnection(host=args.output_host, port=args.output_port,
+    receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
+                                  connection_type=options.connection_type(args))
+    server = JsonServerConnection(host=args.server[0], port=args.server[1],
                                   handshake_data={'lat': args.lat,
                                                   'lon': args.lon,
                                                   'alt': args.alt,
                                                   'user': args.user,
-                                                  'clock_type': clock_type,
+                                                  'clock_type': options.clock_type(args),
                                                   'privacy': args.privacy},
-                                  offer_zlib=args.compress,
+                                  offer_zlib=True,
                                   offer_udp=args.udp,
                                   return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=freq)
+    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args))
 
     server.start()
     coordinator.run_forever()
