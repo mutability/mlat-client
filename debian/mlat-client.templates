@@ -18,6 +18,15 @@ Description: User to run mlat-client as:
 Type: string
 Default: mlat
 
+Template: mlat-client/server-hostport
+Description: Multilateration server (host:port) to connect to:
+ The multilateration client connects to a server that processes the
+ collected data. This setting controls which server the client will
+ connect to. The administrator of the server will be able to provide
+ this information.
+Type: string
+Default: mlat.mutability.co.uk:40147
+
 Template: mlat-client/server-user
 Description: User to log into the server as:
  The multilateration client identifies itself to the server via a short
@@ -78,42 +87,27 @@ Type: select
 Choices: dump1090, beast, radarcape_gps, radarcape_12mhz, sbs
 Default: dump1090
 
-Template: mlat-client/input-host
-Description: Input host for Mode S traffic:
+Template: mlat-client/input-hostport
+Description: Input host:port for Mode S traffic:
  The multilateration client needs to read Mode S messages from a
- receiver such as dump1090. Here you can configure the host that the receiver
- is running on.
-Type: string
-Default: localhost
-
-Template: mlat-client/input-port
-Description: Input port for Mode S traffic:
- The multilateration client needs to read Mode S messages from a
- receiver such as dump1090. Here you can configure the port that the receiver
- is listening on.
+ receiver such as dump1090. Here you can configure the host and port that the
+ receiver is running on.
  .
  For dump1090, you need Beast-format output. This is usually available on port 30005.
  For Radarcapes, use port 10002.
  For SBS, use port 30006.
 Type: string
-Default: 30005
+Default: localhost:30005
 
-Template: mlat-client/sbs-port
-Description: Port for SBS-format output connections (0 disables):
- The multilateration client can return the calculated aircraft positions in Basestation format.
- This setting controls the port mlat-client will listen on for these connections.
+Template: mlat-client/results
+Description: List of result connections/listeners:
+ The multilateration client can return the calculated aircraft positions in
+ various forms. This settings accepts a list of connections or listeners to
+ establish. See the mlat-client --help option for the exact format.
+ .
+ A value of "none" disables the output of results.
 Type: string
-Default: 31003
-
-Template: mlat-client/sbs-ext-port
-Description: Port for extended-SBS-format output connections (0 disables):
- The multilateration client can return the calculated aircraft positions in an
- extended version of the Basestation format. This extended version include the
- number of stations used to find the position, and the geometric dilution of
- precision. Usually only interesting if you are processing the data yourself
- (standard clients will not understand the extended format).
-Type: string
-Default: 0
+Default: basestation,listen,31003
 
 Template: mlat-client/extra-args
 Description: Extra arguments to pass to mlat-client:

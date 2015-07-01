@@ -23,13 +23,21 @@ TEMPLATECONFIG=/usr/share/$NAME/config-template
 SEDSCRIPT=$CONFIGFILE.sed.tmp
 
 subvar_raw() {
-  # $1 = db var value
-  # $2 = config var name
+    # $1 = db var value
+    # $2 = config var name
 
-  # if not present in the config file, add it
-  test -z "$1" || grep -Eq "^ *$2=" $CONFIGFILE || echo "$2=" >> $CONFIGFILE
-  # add to the sedscript
-  echo "s@^ *$2=.*@$2=\"$1\"@" >>$SEDSCRIPT
+    # if not present in the config file, add it
+    if grep -Eq "^ *$2=" $CONFIGFILE
+    then
+        # Already present
+        true
+    else
+        echo "# $2 added automatically on upgrade" >> $CONFIGFILE
+        echo "$2=" >> $CONFIGFILE
+    fi
+
+    # add to the sedscript
+    echo "s@^ *$2=.*@$2=\"$1\"@" >>$SEDSCRIPT
 }
 
 subvar() {
@@ -59,16 +67,15 @@ case "$1" in
 
         subvar_yn start-client START_CLIENT
         subvar run-as-user RUN_AS_USER
+        subvar server-hostport SERVER_HOSTPORT
         subvar server-user SERVER_USER
-        subvar log-file LOGFILE
         subvar input-type INPUT_TYPE
-        subvar input-host INPUT_HOST
-        subvar input-port INPUT_PORT
+        subvar input-hostport INPUT_HOSTPORT
         subvar receiver-lat LAT
         subvar receiver-lon LON
         subvar receiver-alt ALT
-        subvar sbs-port SBS_PORT
-        subvar sbs-ext-port SBS_EXT_PORT
+        subvar results RESULTS
+        subvar log-file LOGFILE
         subvar extra-args EXTRA_ARGS
 
         cp -a -f $CONFIGFILE $CONFIGFILE.tmp

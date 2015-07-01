@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 ### BEGIN INIT INFO
 # Provides:          mlat-client
 # Required-Start:    $remote_fs
@@ -31,22 +31,27 @@ SCRIPTNAME=/etc/init.d/$NAME
 # work out daemon args
 
 # sanitize missing settings
-badconfig=0
+badconfig=""
 [ -z "$START_CLIENT" ] && START_CLIENT=no
 [ -z "$RUN_AS_USER" ] && RUN_AS_USER="missing-RUN_AS_USER-setting-in-config"
-[ -z "$SERVER_USER" ] && badconfig=1
-[ -z "$SBS_PORT" ] && SBS_PORT=0
-[ -z "$SBS_EXT_PORT" ] && SBS_EXT_PORT=0
-[ -z "$LAT" ] && badconfig=1
-[ -z "$LON" ] && badconfig=1
-[ -z "$ALT" ] && badconfig=1
+[ -z "$SERVER_USER" ] && badconfig="$badconfig SERVER_USER"
+[ -z "$LAT" ] && badconfig="$badconfig LAT"
+[ -z "$LON" ] && badconfig="$badconfig LON"
+[ -z "$ALT" ] && badconfig="$badconfig ALT"
 [ -z "$INPUT_TYPE" ] && INPUT_TYPE=dump1090
-[ -z "$INPUT_HOST" ] && badconfig=1
-[ -z "$INPUT_PORT" ] && badconfig=1
+[ -z "$INPUT_HOSTPORT" ] && badconfig="$badconfig INPUT_HOSTPORT"
+[ -z "$SERVER_HOSTPORT" ] && badconfig="$badconfig SERVER_HOSTPORT"
 
-ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-type $INPUT_TYPE --input-host $INPUT_HOST --input-port $INPUT_PORT"
-if [ "$SBS_PORT" != "0" ]; then ARGS="$ARGS --sbs-port $SBS_PORT"; fi
-if [ "$SBS_EXT_PORT" != "0" ]; then ARGS="$ARGS --sbs-ext-port $SBS_EXT_PORT"; fi
+ARGS="--user $SERVER_USER --lat $LAT --lon $LON --alt $ALT --input-type $INPUT_TYPE --input-connect $INPUT_HOSTPORT --server $SERVER_HOSTPORT"
+
+for r in $RESULTS
+do
+    if [ "$r" != "none" ]
+    then
+        ARGS="$ARGS --results $r"
+    fi
+done
+
 ARGS="$ARGS $EXTRA_ARGS"
 
 # Load the VERBOSE setting and other rcS variables
@@ -72,8 +77,8 @@ do_start()
             return 2
         fi
 
-        if [ "$badconfig" = 1 ]; then
-            log_warning_msg "Not starting $NAME daemon, missing configuration options"
+        if [ -n "$badconfig" ]; then
+            log_warning_msg "Not starting $NAME daemon, missing configuration options ($badconfig)"
             return 2
         fi
 

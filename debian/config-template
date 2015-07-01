@@ -18,14 +18,14 @@ SERVER_USER=
 # Logfile to log to
 LOGFILE=
 
-# Input receivier type (dump1090, beast, radarcape_12mhz, radarcape_gps, sbs)
+# Input receiver type (dump1090, beast, radarcape_12mhz, radarcape_gps, sbs)
 INPUT_TYPE=
 
-# Input host to connect to for Beast-format messages
-INPUT_HOST=
+# Input host:port to connect to for Beast-format messages
+INPUT_HOSTPORT=
 
-# Input port to connect to for Beast-format messages
-INPUT_PORT=
+# Multilateration server host:port to provide data to
+SERVER_HOSTPORT=
 
 # Latitude of the receiver, in decimal degrees
 LAT=
@@ -36,8 +36,10 @@ LON=
 # Altitude of the receiver, in metres
 ALT=
 
-# Port to listen for SBS connections, or 0 to disable
-SBS_PORT=
+# List of result connections/listeners to establish.
+# This should be a space-separated list of values suitable for passing to
+# the --results option (see mlat-client --help for syntax)
+RESULTS=
 
-# Port to listen for extended SBS connections, or 0 to disable
-SBS_EXT_PORT=
+# Other arguments to pass to mlat-client
+EXTRA_ARGS=
