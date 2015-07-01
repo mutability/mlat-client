@@ -16,7 +16,7 @@ automatically by piaware.
 To build a Debian (or Ubuntu, Raspbian, etc) package that includes config
 and startup scripts:
 
-    $ dpkg-buildpackage -b
+    $ dpkg-buildpackage -b -uc
 
 This will build a .deb package in the parent directory. Install it with dpkg:
 
