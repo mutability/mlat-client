@@ -216,6 +216,8 @@ class BasestationConnection(BasicConnection):
             return
 
         now = time.time()
+        if timestamp is None:
+            timestamp = now
 
         if nsvel is not None and ewvel is not None:
             speed = math.sqrt(nsvel ** 2 + ewvel ** 2)
@@ -238,20 +240,20 @@ class BasestationConnection(BasicConnection):
                                     lat=round(lat, 4),
                                     lon=round(lon, 4),
                                     vrate=vrate if (vrate is not None) else '',
-                                    squawk=csv_quote(squawk) if squawk else '',
+                                    squawk=csv_quote(squawk) if (squawk is not None) else '',
                                     fs='',
                                     emerg='',
                                     ident='',
                                     aog='',
-                                    error_est=error_est,
-                                    nstations=nstations)
+                                    error_est=round(error_est, 0) if (error_est is not None) else '',
+                                    nstations=nstations if (nstations is not None) else '')
 
         self.send((line + '\n').encode('ascii'))
         self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
 
 class ExtBasestationConnection(BasestationConnection):
-    template = 'MLAT,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est:.0f}'  # noqa
+    template = 'MLAT,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est}'  # noqa
 
     @staticmethod
     def describe():
