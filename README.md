@@ -4,7 +4,7 @@ This is a client that selectively forwards Mode S messages to a
 server that resolves the transmitter position by multilateration of the same
 message received by multiple clients.
 
-The corresponding server code is available (or will be, shortly) at
+The corresponding server code is available at
 https://github.com/mutability/mlat-server.
 
 There is also support for running in a mode used to feed multilateration
