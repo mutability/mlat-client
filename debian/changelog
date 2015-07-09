@@ -1,3 +1,10 @@
+mlat-client (0.2.3~dev) UNRELEASED; urgency=medium
+
+  * Produce integer speed/heading/vrate values in Basestation output, maybe
+    this will make VRS happier.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Thu, 09 Jul 2015 11:15:46 +0100
+
 mlat-client (0.2.2) unstable; urgency=medium
 
   * Big overhaul of option handling. Existing configs should be upgraded
