@@ -8,7 +8,7 @@ import argparse
 import mlat.client.version
 from flightaware.client.adeptclient import AdeptConnection, UdpServerConnection
 from mlat.client.coordinator import Coordinator
-from mlat.client.util import log
+from mlat.client.util import log, log_exc
 from mlat.client import options
 
 
@@ -44,4 +44,11 @@ def main():
     coordinator.run_until(lambda: adept.closed)
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        log("Exiting on SIGINT")
+    except Exception:
+        log_exc("Exiting on exception")
+    else:
+        log("Exiting on connection loss")
