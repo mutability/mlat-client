@@ -19,6 +19,10 @@
 from distutils.core import setup, Extension
 from distutils.ccompiler import get_default_compiler
 
+# get the version from the source
+CLIENT_VERSION = "unknown"
+exec(open('mlat/client/version.py').read())
+
 more_warnings = False
 extra_compile_args = []
 if more_warnings and get_default_compiler() == 'unix':
@@ -30,7 +34,7 @@ modes_ext = Extension('_modes',
                       extra_compile_args=extra_compile_args)
 
 setup(name='MlatClient',
-      version='0.2.1',
+      version=CLIENT_VERSION,
       description='Multilateration client package',
       author='Oliver Jowett',
       author_email='oliver@mutability.co.uk',
