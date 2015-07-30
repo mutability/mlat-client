@@ -158,11 +158,27 @@ class Coordinator:
             self.server.send_lost(discarded)
 
     def periodic_stats(self, now):
-        log('Receiver connection: {0}', self.receiver.state)
-        log('Server connection:   {0}', self.server.state)
+        log('Receiver status: {0}', self.receiver.state)
+        log('Server status:   {0}', self.server.state)
         global_stats.log_and_reset()
-        log('Aircraft: {0} known, {1} requested by server',
-            len(self.aircraft), len(self.requested_traffic))
+
+        adsb_req = adsb_total = modes_req = modes_total = 0
+        now = monotonic_time()
+        for ac in self.aircraft.values():
+            if now - ac.last_position_time < 60:
+                adsb_total += 1
+                if ac.requested:
+                    adsb_req += 1
+            else:
+                modes_total += 1
+                if ac.requested:
+                    modes_req += 1
+
+        log('Aircraft: {modes_req} of {modes_total} Mode S, {adsb_req} of {adsb_total} ADS-B used',
+            modes_req=modes_req,
+            modes_total=modes_total,
+            adsb_req=adsb_req,
+            adsb_total=adsb_total)
 
     # callbacks from server connection
 

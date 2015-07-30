@@ -91,7 +91,7 @@ class ReceiverConnection(ReconnectingConnection):
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
         self.last_data_received = monotonic_time()
-        self.state = 'ready'
+        self.state = 'connected'
         self.coordinator.input_connected()
 
     def lost_connection(self):
@@ -100,7 +100,7 @@ class ReceiverConnection(ReconnectingConnection):
     def heartbeat(self, now):
         ReconnectingConnection.heartbeat(self, now)
 
-        if self.state == 'ready' and (now - self.last_data_received) > self.inactivity_timeout:
+        if self.state == 'connected' and (now - self.last_data_received) > self.inactivity_timeout:
             self.disconnect('No data (not even keepalives) received for {0:.0f} seconds'.format(
                 self.inactivity_timeout))
             self.reconnect()

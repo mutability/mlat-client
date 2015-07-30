@@ -167,7 +167,8 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
         self.handlers = {
             'mlat_wanted': self.process_wanted_message,
             'mlat_unwanted': self.process_unwanted_message,
-            'mlat_result': self.process_result_message
+            'mlat_result': self.process_result_message,
+            'mlat_status': self.process_status_message
         }
 
     def readable(self):
@@ -246,6 +247,23 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
                                             squawk=None,
                                             error_est=None,
                                             nstations=None)
+
+    def process_status_message(self, message):
+        s = message.get('status', 'unknown')
+        r = int(message.get('receiver_sync_count', 0))
+
+        if s == 'ok':
+            self.connection.state = "ok; synchronized with {} nearby receivers".format(r)
+        elif s == 'unstable':
+            self.connection.state = (
+                "clock unstable, multilateration disabled"
+                " (check the configured receiver position and CPU load)")
+        elif s == 'no_sync':
+            self.connection.state = (
+                "not synchronized with any nearby receivers"
+                " (check the configured receiver position)")
+        else:
+            self.connection.state = "{} {}".format(s, r)
 
 
 class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
@@ -366,7 +384,7 @@ class AdeptConnection:
         self.send_input_connected = self.writer.send_input_connected
         self.send_input_disconnected = self.writer.send_input_disconnected
 
-        self.state = 'ready'
+        self.state = 'connected'
         self.writer.send_ready()
         self.coordinator.server_connected()
 
