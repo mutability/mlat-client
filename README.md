@@ -35,6 +35,22 @@ piaware will detect the presence of the client and start it when needed.
 If you are connecting to a third party multilateration server, contact the
 server's administrator for configuration instructions.
 
+## Supported receivers
+
+* Anything that produces Beast-format output with a 12MHz clock:
+** dump1090_mr, dump1090-mutability, FlightAware's dump1090
+** modesdeco (probably?)
+** an actual Mode-S Beast
+* SBS receivers
+* Radarcape in 12MHz mode
+* Radarcape in GPS mode
+
+## Unsupported receivers
+
+* The FlightRadar24 radarcape-based receiver. This produces a deliberately
+crippled timestamp in its output, making it useless for multilateration.
+If you have one of these, you should ask FR24 to fix this.
+
 ## License
 
 Copyright 2015, [Oliver Jowett](mailto:oliver@mutability.co.uk).
