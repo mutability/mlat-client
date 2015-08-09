@@ -38,9 +38,9 @@ server's administrator for configuration instructions.
 ## Supported receivers
 
 * Anything that produces Beast-format output with a 12MHz clock:
-** dump1090_mr, dump1090-mutability, FlightAware's dump1090
-** modesdeco (probably?)
-** an actual Mode-S Beast
+ * dump1090_mr, dump1090-mutability, FlightAware's dump1090
+ * modesdeco (probably?)
+ * an actual Mode-S Beast
 * SBS receivers
 * Radarcape in 12MHz mode
 * Radarcape in GPS mode
