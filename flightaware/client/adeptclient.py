@@ -48,6 +48,7 @@ class UdpServerConnection:
         self.buf = bytearray(1500)
         self.used = 0
         self.seq = 0
+        self.count = 0
         self.sock = None
 
     def start(self):
@@ -143,6 +144,7 @@ class UdpServerConnection:
         self.used = 0
         self.base_timestamp = None
         self.seq = (self.seq + 1) & 0xffff
+        self.count += 1
 
     def close(self):
         self.used = 0
@@ -352,8 +354,12 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
     def send_clock_reset(self):
         self.send_message(type='mlat_event', event='clock_reset')
 
+    def send_udp_report(self, count):
+        self.send_message(type='mlat_udp_report', messages_sent=str(count))
 
 class AdeptConnection:
+    UDP_REPORT_INTERVAL = 60.0
+
     def __init__(self, udp_transport=None):
         self.reader = None
         self.writer = None
@@ -386,6 +392,7 @@ class AdeptConnection:
 
         self.state = 'connected'
         self.writer.send_ready()
+        self.next_udp_report = util.monotonic_time() + self.UDP_REPORT_INTERVAL
         self.coordinator.server_connected()
 
     def disconnect(self, why=None):
@@ -404,3 +411,7 @@ class AdeptConnection:
     def heartbeat(self, now):
         if self.udp_transport:
             self.udp_transport.flush()
+
+            if now > self.next_udp_report:
+                self.next_udp_report = now + self.UDP_REPORT_INTERVAL
+                self.writer.send_udp_report(self.udp_transport.count)
