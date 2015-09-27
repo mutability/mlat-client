@@ -255,15 +255,11 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
         r = int(message.get('receiver_sync_count', 0))
 
         if s == 'ok':
-            self.connection.state = "ok; synchronized with {} nearby receivers".format(r)
+            self.connection.state = "synchronized with {} nearby receivers".format(r)
         elif s == 'unstable':
-            self.connection.state = (
-                "clock unstable, multilateration disabled"
-                " (check the configured receiver position and CPU load)")
+            self.connection.state = "clock unstable"
         elif s == 'no_sync':
-            self.connection.state = (
-                "not synchronized with any nearby receivers"
-                " (check the configured receiver position)")
+            self.connection.state = "not synchronized with any nearby receivers"
         else:
             self.connection.state = "{} {}".format(s, r)
 
@@ -356,6 +352,7 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
 
     def send_udp_report(self, count):
         self.send_message(type='mlat_udp_report', messages_sent=str(count))
+
 
 class AdeptConnection:
     UDP_REPORT_INTERVAL = 60.0
