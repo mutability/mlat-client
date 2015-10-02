@@ -143,7 +143,7 @@ def make_results_group(parser):
     results.add_argument('--results',
                          help="""
 <protocol>,connect,host:port or <protocol>,listen,port.
-Protocol may be 'basestation', 'basestation_ext', or 'beast'. Can be specified multiple times.""",
+Protocol may be 'basestation', 'ext_basestation', or 'beast'. Can be specified multiple times.""",
                          type=results_format,
                          action='append',
                          default=[])
