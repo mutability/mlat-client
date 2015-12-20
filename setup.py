@@ -30,7 +30,7 @@ if more_warnings and get_default_compiler() == 'unix':
     extra_compile_args.append('-Wpointer-arith')
 
 modes_ext = Extension('_modes',
-                      sources=['_modes.c'],
+                      sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'],
                       extra_compile_args=extra_compile_args)
 
 setup(name='MlatClient',

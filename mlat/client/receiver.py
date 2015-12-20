@@ -29,10 +29,6 @@ from mlat.client.stats import global_stats
 from mlat.client.net import ReconnectingConnection
 from mlat.client.util import log, monotonic_time
 
-packetize_radarcape_input = mlat.profile.trackcpu(_modes.packetize_radarcape_input)
-packetize_beast_input = mlat.profile.trackcpu(_modes.packetize_beast_input)
-packetize_sbs_input = mlat.profile.trackcpu(_modes.packetize_sbs_input)
-
 
 class ReceiverConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
@@ -41,17 +37,9 @@ class ReceiverConnection(ReconnectingConnection):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
-        self.last_timestamp = 0
-        if connection_type == 'radarcape':
-            self.packetize = packetize_radarcape_input
-        elif connection_type == 'beast':
-            self.packetize = packetize_beast_input
-        elif connection_type == 'sbs':
-            self.packetize = self.find_sbs_stream_start
-        else:
-            raise NotImplementedError("no support for conn_type=" + connection_type)
+        self.connection_type = connection_type
 
-    def find_sbs_stream_start(self, data, start):
+    def find_sbs_stream_start(self, data):
         # initially, we might be out of sync with the stream (the Basestation seems
         # to drop us in the middle of a packet on connecting sometimes)
         # so throw away data until we see DLE STX
@@ -60,17 +48,17 @@ class ReceiverConnection(ReconnectingConnection):
         i = data.find(b'\x10\x02')
         if i == 0:
             # DLE STX at the very start of input, great!
-            self.packetize = packetize_sbs_input
-            return self.packetize(data, start)
+            self.feed = self.reader.feed
+            return self.feed(data)
 
         while i > 0:
             # DLE STX not at the very start
             # check that it's preceeded by a non-DLE
             if data[i-1] != 0x10:
                 # Success.
-                self.packetize = packetize_sbs_input
-                consumed, messages = self.packetize(data[i:], start)
-                return (consumed + i, messages)
+                self.feed = self.reader.feed
+                consumed, messages, pending = self.feed(data[i:])
+                return (consumed + i, messages, pending)
 
             # DLE DLE STX. Can't assume this is the start of a
             # packet (the STX could be data following an escaped DLE),
@@ -82,11 +70,24 @@ class ReceiverConnection(ReconnectingConnection):
         if len(data) > 512:
             raise ValueError("Doesn't look like a Basestation input stream - no DLE STX in the first 512 bytes")
 
-        return (0, ())
+        return (0, (), False)
 
     def reset_connection(self):
         self.residual = None
-        self.last_timestamp = 0
+
+        if self.connection_type == 'radarcape':
+            self.reader = _modes.Reader(_modes.RADARCAPE)
+            self.feed = self.reader.feed
+        elif self.connection_type == 'beast':
+            self.reader = _modes.Reader(_modes.BEAST)
+            self.feed = self.reader.feed
+        elif self.connection_type == 'sbs':
+            self.reader = _modes.Reader(_modes.SBS)
+            self.feed = self.find_sbs_stream_start
+        else:
+            raise NotImplementedError("no support for conn_type=" + self.connection_type)
+
+        self.allow_mode_change = False  # for now, at least
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
@@ -125,14 +126,7 @@ class ReceiverConnection(ReconnectingConnection):
 
         self.last_data_received = monotonic_time()
 
-        try:
-            consumed, messages = self.packetize(moredata, self.last_timestamp)
-        except _modes.ClockResetError as e:
-            log("Problem reading receiver messages: " + str(e))
-            log("Ensure that only one receiver is feeding data to this client.")
-            log("A single multilateration client cannot handle data from multiple receivers.")
-            self.close()
-            return
+        consumed, messages, pending_error = self.feed(moredata)
 
         if consumed < len(moredata):
             self.residual = moredata[consumed:]
@@ -145,3 +139,11 @@ class ReceiverConnection(ReconnectingConnection):
             global_stats.receiver_rx_messages += len(messages)
             self.last_timestamp = messages[-1].timestamp
             self.coordinator.input_received_messages(messages)
+
+        if pending_error:
+            # call it again to get the exception
+            # now that we've handled all the messages
+            if self.residual is None:
+                self.feed(b'')
+            else:
+                self.feed(residual)
