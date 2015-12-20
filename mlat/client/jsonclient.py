@@ -36,6 +36,8 @@ import mlat.geodesy
 from mlat.client.util import log, monotonic_time
 from mlat.client.stats import global_stats
 
+DEBUG = False
+
 # UDP protocol submessages
 
 TYPE_SYNC = 1
@@ -264,7 +266,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.linebuf = []
 
     def _send_json(self, o):
-        #log('Send: {0}', o)
+        if DEBUG:
+            log('Send: {0}', o)
         self.linebuf.append(json.dumps(o, separators=(',', ':')))
 
     #
@@ -335,6 +338,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                          'udp_transport': 2 if self.offer_udp else False,
                          'return_result_format': 'ecef'}
         handshake_msg.update(self.handshake_data)
+        if DEBUG:
+            log("Handshake: {0}", handshake_msg)
         self.writebuf += (json.dumps(handshake_msg) + '\n').encode('ascii')   # linebuf not used yet
         self.consume_readbuf = self.consume_readbuf_uncompressed
         self.handle_server_line = self.handle_handshake_response
@@ -383,6 +388,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                 log("json parsing problem, line: >>{line}<<", line=line)
                 raise
 
+            if DEBUG:
+                log('Receive: {0}', msg)
             self.handle_server_line(msg)
 
     def consume_readbuf_zlib(self):
@@ -476,7 +483,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.send_rate_report({})
 
     def handle_connected_request(self, request):
-        #log('Receive: {0}', request)
+        if DEBUG:
+            log('Receive: {0}', request)
         if 'start_sending' in request:
             self.coordinator.server_start_sending([int(x, 16) for x in request['start_sending']])
         elif 'stop_sending' in request:
