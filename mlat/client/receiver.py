@@ -137,7 +137,6 @@ class ReceiverConnection(ReconnectingConnection):
 
         if messages:
             global_stats.receiver_rx_messages += len(messages)
-            self.last_timestamp = messages[-1].timestamp
             self.coordinator.input_received_messages(messages)
 
         if pending_error:
