@@ -78,13 +78,15 @@ location pin from the coverage maps.""",
     outputs = options.build_outputs(args)
 
     receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
-                                  connection_type=options.connection_type(args))
+                                  mode=options.connection_mode(args))
     server = JsonServerConnection(host=args.server[0], port=args.server[1],
                                   handshake_data={'lat': args.lat,
                                                   'lon': args.lon,
                                                   'alt': args.alt,
                                                   'user': args.user,
                                                   'clock_type': options.clock_type(args),
+                                                  'clock_frequency': options.clock_frequency(args),
+                                                  'clock_epoch': options.clock_epoch(args),
                                                   'privacy': args.privacy},
                                   offer_zlib=True,
                                   offer_udp=args.udp,

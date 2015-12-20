@@ -347,8 +347,18 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
     def send_input_disconnected(self):
         self.send_message(type='mlat_event', event='disconnected')
 
-    def send_clock_reset(self):
-        self.send_message(type='mlat_event', event='clock_reset')
+    def send_clock_reset(self, frequency=None, epoch=None, mode=None):
+        message = {
+            'type': 'mlat_event',
+            'event': 'clock_reset'
+        }
+
+        if frequency is not None:
+            message['frequency'] = str(frequency)
+            message['epoch'] = 'none' if epoch is None else epoch
+            message['mode'] = mode
+
+        self.send_message(**message)
 
     def send_udp_report(self, count):
         self.send_message(type='mlat_udp_report', messages_sent=str(count))

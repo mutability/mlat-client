@@ -33,67 +33,59 @@ from mlat.client.util import log, monotonic_time
 class ReceiverConnection(ReconnectingConnection):
     inactivity_timeout = 150.0
 
-    def __init__(self, host, port, connection_type):
+    def __init__(self, host, port, mode):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
         self.last_data_received = None
-        self.connection_type = connection_type
+        self.mode = mode
 
-    def find_sbs_stream_start(self, data):
-        # initially, we might be out of sync with the stream (the Basestation seems
-        # to drop us in the middle of a packet on connecting sometimes)
-        # so throw away data until we see DLE STX
+    def detect(self, data):
+        n, detected_mode = detect_data_format(data)
+        if detected_mode is not None:
+            log("Detected {mode} format input".format(mode=detected_mode))
+            if detected_mode == _modes.AVR:
+                log("Input format is AVR with no timestamps. "
+                    "This format does not contain enough information for multilateration. "
+                    "Please enable mlat timestamps on your receiver.")
+                self.close()
+                return (0, (), False)
 
-        # look for DLE STX
-        i = data.find(b'\x10\x02')
-        if i == 0:
-            # DLE STX at the very start of input, great!
+            self.reader.mode = detected_mode
             self.feed = self.reader.feed
-            return self.feed(data)
 
-        while i > 0:
-            # DLE STX not at the very start
-            # check that it's preceeded by a non-DLE
-            if data[i-1] != 0x10:
-                # Success.
-                self.feed = self.reader.feed
-                consumed, messages, pending = self.feed(data[i:])
-                return (consumed + i, messages, pending)
+            # synthesize a mode-change event before the real messages
+            mode_change = (mode_change_event(self.reader), )
 
-            # DLE DLE STX. Can't assume this is the start of a
-            # packet (the STX could be data following an escaped DLE),
-            # skip it.
+            try:
+                m, messages, pending_error = self.feed(data[n:])
+            except ValueError:
+                # return just the mode change and keep the error pending
+                return (n, mode_change, True)
 
-            i = data.find(b'\x10\x02', i+2)
-
-        # no luck this time
-        if len(data) > 512:
-            raise ValueError("Doesn't look like a Basestation input stream - no DLE STX in the first 512 bytes")
-
-        return (0, (), False)
+            # put the mode change on the front of the message list
+            return (n + m, mode_change + messages, pending_error)
+        else:
+            if len(data) > 512:
+                raise ValueError('Unable to autodetect input message format')
+            return (0, (), False)
 
     def reset_connection(self):
         self.residual = None
-
-        if self.connection_type == 'radarcape':
-            self.reader = _modes.Reader(_modes.RADARCAPE)
-            self.feed = self.reader.feed
-        elif self.connection_type == 'beast':
-            self.reader = _modes.Reader(_modes.BEAST)
-            self.feed = self.reader.feed
-        elif self.connection_type == 'sbs':
-            self.reader = _modes.Reader(_modes.SBS)
-            self.feed = self.find_sbs_stream_start
+        self.reader = _modes.Reader(self.mode)
+        if self.mode is None:
+            self.feed = self.detect
         else:
-            raise NotImplementedError("no support for conn_type=" + self.connection_type)
-
-        self.allow_mode_change = False  # for now, at least
+            self.feed = self.reader.feed
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
         self.last_data_received = monotonic_time()
         self.state = 'connected'
         self.coordinator.input_connected()
+
+        # synthesize a mode change immediately if we are not autodetecting
+        if self.reader.mode is not None:
+            self.coordinator.input_received_messages((mode_change_event(self.reader),))
 
     def lost_connection(self):
         self.coordinator.input_disconnected()
@@ -126,7 +118,12 @@ class ReceiverConnection(ReconnectingConnection):
 
         self.last_data_received = monotonic_time()
 
-        consumed, messages, pending_error = self.feed(moredata)
+        try:
+            consumed, messages, pending_error = self.feed(moredata)
+        except ValueError as e:
+            log("Parsing receiver data failed: {e}", e=str(e))
+            self.close()
+            return
 
         if consumed < len(moredata):
             self.residual = moredata[consumed:]
@@ -142,7 +139,71 @@ class ReceiverConnection(ReconnectingConnection):
         if pending_error:
             # call it again to get the exception
             # now that we've handled all the messages
-            if self.residual is None:
-                self.feed(b'')
+            try:
+                if self.residual is None:
+                    self.feed(b'')
+                else:
+                    self.feed(residual)
+            except ValueError as e:
+                log("Parsing receiver data failed: {e}", e=str(e))
+                self.close()
+                return
+
+
+def mode_change_event(reader):
+    return _modes.EventMessage(_modes.DF_EVENT_MODE_CHANGE, 0, {
+        "mode": reader.mode,
+        "frequency": reader.frequency,
+        "epoch": reader.epoch})
+
+
+def detect_data_format(data):
+    """Try to work out what sort of data format this is.
+
+    Returns (offset, mode) where offset is the byte offset
+    to start at and mode is the decoder mode to use,
+    or None if detection failed."""
+
+    for i in range(len(data)-4):
+        mode = None
+
+        if data[i] != b'\x1a' and data[i+1:i+3] in (b'\x1a1', b'\x1a2', b'\x1a3', b'\x1a4'):
+            mode = _modes.BEAST
+            offset = 1
+
+        elif data[i:i+4] == b'\x10\0x03\x10\0x02':
+            mode = _modes.SBS
+            offset = 2
+
+        else:
+            if data[i:i+3] in (b';\n\r', b';\r\n'):
+                avr_prefix = 3
+            elif data[i:i+2] in (b';\n', b';\r'):
+                avr_prefix = 2
             else:
-                self.feed(residual)
+                avr_prefix = None
+
+            if avr_prefix:
+                firstbyte = data[i + avr_prefix];
+                if firstbyte in (ord('@'), ord('%'), ord('<')):
+                    mode = _modes.AVRMLAT
+                    offset = avr_prefix
+                elif firstbyte in (ord('*'), ord('.')):
+                    mode = _modes.AVR
+                    offset = avr_prefix
+
+        if mode:
+            reader = _modes.Reader(mode)
+            # don't actually want any data, just parse it
+            reader.wants_events = False
+            reader.default_filter = [False for i in range(32)]
+            try:
+                n, _, pending_error = reader.feed(data[i + offset:])
+                if n > 0 and not pending_error:
+                    # consumed some data without problems
+                    return (i + offset, mode)
+            except ValueError:
+                # parse error, ignore it
+                pass
+
+    return (0, None)

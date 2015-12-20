@@ -20,21 +20,24 @@
 import argparse
 import functools
 
+import _modes
 from mlat.client.receiver import ReceiverConnection
 from mlat.client.output import OutputListener, OutputConnector
 from mlat.client.output import BasestationConnection, ExtBasestationConnection, BeastConnection
 
 _receiver_types = {
-    # input type -> clock frequency, server clock type, connection type
+    # input type -> decoder mode, server clock type
+    # the server clock type is (a) needed for legacy servers that don't understand
+    # the clock frequency / epoch data and (b) newer servers can use it to set
+    # jitter/error values
 
-    # "dump1090" / "beast" / "radarcape_12mhz" are functionally equivalent for the client,
-    # but telling the server the difference lets it apply different parameters for clock
-    # error / max drift
-    'dump1090': (12000000, 'dump1090', 'beast'),
-    'beast': (12000000, 'beast', 'beast'),
-    'radarcape_12mhz': (12000000, 'radarcape_12mhz', 'beast'),
-    'radarcape_gps': (1000000000, 'radarcape_gps', 'radarcape'),
-    'sbs': (20000000, 'sbs', 'sbs')
+    'auto':            (None,             'unknown'),
+    'dump1090':        (_modes.BEAST,     'dump1090'),
+    'beast':           (_modes.BEAST,     'beast'),
+    'radarcape_12mhz': (_modes.BEAST,     'radarcape_12mhz'),
+    'radarcape_gps':   (_modes.RADARCAPE, 'radarcape_gps'),
+    'sbs':             (_modes.SBS,       'sbs'),
+    'avrmlat':         (_modes.AVRMLAT,   'unknown'),
 }
 
 
@@ -90,7 +93,7 @@ def make_inputs_group(parser):
     inputs.add_argument('--input-type',
                         help="Sets the input receiver type.",
                         choices=_receiver_types.keys(),
-                        default='dump1090')
+                        default='auto')
     inputs.add_argument('--input-connect',
                         help="host:port to connect to for Mode S traffic.  Required.",
                         required=True,
@@ -99,15 +102,19 @@ def make_inputs_group(parser):
 
 
 def clock_frequency(args):
-    return _receiver_types[args.input_type][0]
+    return _modes.Reader(_receiver_types[args.input_type][0]).frequency
+
+
+def clock_epoch(args):
+    return _modes.Reader(_receiver_types[args.input_type][0]).epoch
 
 
 def clock_type(args):
     return _receiver_types[args.input_type][1]
 
 
-def connection_type(args):
-    return _receiver_types[args.input_type][2]
+def connection_mode(args):
+    return _receiver_types[args.input_type][0]
 
 
 def results_format(s):
@@ -160,4 +167,4 @@ def build_outputs(args):
 def build_receiver_connection(args):
     return ReceiverConnection(host=args.input_connect[0],
                               port=args.input_connect[1],
-                              connection_type=connection_type(args))
+                              mode=connection_mode(args))

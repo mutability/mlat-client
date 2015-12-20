@@ -23,6 +23,7 @@ Core of the client: track aircraft and send data to the server as needed.
 import asyncore
 import time
 
+import _modes
 import mlat.profile
 from mlat.client.util import monotonic_time, log
 from mlat.client.stats import global_stats
@@ -58,7 +59,9 @@ class Coordinator:
         self.aircraft = {}
         self.requested_traffic = set()
         self.df_handlers = {
-            -1: self.received_clock_reset_marker,
+            _modes.DF_EVENT_MODE_CHANGE: self.received_mode_change_event,
+            _modes.DF_EVENT_EPOCH_ROLLOVER: self.received_epoch_rollover_event,
+            _modes.DF_EVENT_TIMESTAMP_JUMP: self.received_timestamp_jump_event,
             0: self.received_df_misc,
             4: self.received_df_misc,
             5: self.received_df_misc,
@@ -71,6 +74,7 @@ class Coordinator:
         self.next_report = None
         self.next_stats = monotonic_time() + self.stats_interval
         self.next_profile = monotonic_time()
+        self.recent_jumps = 0
 
         receiver.coordinator = self
         server.coordinator = self
@@ -180,6 +184,10 @@ class Coordinator:
             adsb_req=adsb_req,
             adsb_total=adsb_total)
 
+        if self.recent_jumps > 0:
+            log('Out-of-order timestamps: {recent}', recent=self.recent_jumps)
+            self.recent_jumps = 0
+
     # callbacks from server connection
 
     def server_connected(self):
@@ -239,9 +247,25 @@ class Coordinator:
 
     # handlers for input messages
 
-    def received_clock_reset_marker(self, message, now):
-        # clock reset, but stream is intact
-        self.server.send_clock_reset('Normal clock rollover (GPS start of day, etc)')
+    def received_mode_change_event(self, message, now):
+        # decoder mode changed, clock parameters possibly changed
+        self.freq = message.eventdata['frequency']
+        self.recent_jumps = 0
+        self.server.send_clock_reset('Decoder mode changed to {mode}'.format(mode=message.eventdata['mode']),
+                                     mode=message.eventdata['mode'],
+                                     epoch=message.eventdata['epoch'],
+                                     frequency=message.eventdata['frequency'])
+
+    def received_epoch_rollover_event(self, message, now):
+        # epoch rollover, reset clock
+        self.server.send_clock_reset('Epoch rollover detected')
+
+    def received_timestamp_jump_event(self, message, now):
+        self.recent_jumps += 1
+        if self.recent_jumps == 10:
+            log("Warning: the timestamps provided by your receiver do not seem to be self-consistent. "
+                "This can happen if you feed data from multiple receivers to a single mlat-client, which "
+                "is not supported; use a separate mlat-client for each receiver.")
 
     def received_df_misc(self, message, now):
         ac = self.aircraft.get(message.address)

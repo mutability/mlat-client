@@ -304,8 +304,17 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def send_input_disconnected(self):
         self._send_json({'input_disconnected': 'disconnected'})
 
-    def send_clock_reset(self, message):
-        self._send_json({'clock_reset': message})
+    def send_clock_reset(self, reason, frequency=None, epoch=None, mode=None):
+        details = {
+            'reason': reason
+        }
+
+        if frequency is not None:
+            details['frequency'] = frequency
+            details['epoch'] = epoch
+            details['mode'] = mode
+
+        self._send_json({'clock_reset': details})
 
     def start_connection(self):
         log('Connected to multilateration server at {0}:{1}, handshaking', self.host, self.port)
