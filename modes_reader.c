@@ -187,7 +187,8 @@ int modesreader_module_init(PyObject *m)
 
         Py_INCREF(pystr);
         modetable[i].pystr = pystr;
-        PyModule_AddObject(m, modetable[i].cstr, pystr);
+        if (PyModule_AddObject(m, modetable[i].cstr, pystr) < 0)
+            goto error;
     }
 
     Py_INCREF(&modesreaderType);
