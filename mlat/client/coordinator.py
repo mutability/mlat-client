@@ -47,8 +47,11 @@ class Aircraft:
 
 
 class Coordinator:
+    update_interval = 5.0
     report_interval = 30.0
-    stats_interval = 900.0
+    stats_interval = 60.0
+    position_expiry_age = 30.0
+    expiry_age = 60.0
 
     def __init__(self, receiver, server, outputs, freq):
         self.receiver = receiver
@@ -58,6 +61,7 @@ class Coordinator:
 
         self.aircraft = {}
         self.requested_traffic = set()
+        self.reported = set()
         self.df_handlers = {
             _modes.DF_EVENT_MODE_CHANGE: self.received_mode_change_event,
             _modes.DF_EVENT_EPOCH_ROLLOVER: self.received_epoch_rollover_event,
@@ -74,6 +78,7 @@ class Coordinator:
         self.next_report = None
         self.next_stats = monotonic_time() + self.stats_interval
         self.next_profile = monotonic_time()
+        self.next_aircraft_update = self.last_aircraft_update = monotonic_time()
         self.recent_jumps = 0
 
         receiver.coordinator = self
@@ -116,32 +121,64 @@ class Coordinator:
             self.next_profile = now + 30.0
             mlat.profile.dump_cpu_profiles()
 
-        if self.next_report and now >= self.next_report:
-            self.next_report = now + self.report_interval
-            self.send_aircraft_report()
-            self.expire(now)
-            self.send_rate_report(now)
+        if now >= self.next_aircraft_update:
+            self.next_aircraft_update = now + self.update_interval
+            self.update_aircraft(now)
+
+            # piggyback reporting on regular updates
+            # as the reporting uses data produced by the update
+            if self.next_report and now >= self.next_report:
+                self.next_report = now + self.report_interval
+                self.send_aircraft_report()
+                self.send_rate_report(now)
 
         if now >= self.next_stats:
             self.next_stats = now + self.stats_interval
             self.periodic_stats(now)
 
-    def report_aircraft(self, ac):
-        ac.reported = True
-        self.newly_seen.add(ac.icao)
+    def update_aircraft(self, now):
+        # process aircraft the receiver has seen
+        # (we have not necessarily seen any messages,
+        # due to the receiver filter)
+        for icao in self.receiver.recent_aircraft():
+            ac = self.aircraft.get(icao)
+            if not ac:
+                ac = Aircraft(icao)
+                ac.requested = (icao in self.requested_traffic)
+                ac.rate_measurement_start = now
+                self.aircraft[icao] = ac
+
+            if ac.last_message_time <= self.last_aircraft_update:
+                # fudge it a bit, receiver has seen messages
+                # but they were all filtered
+                ac.messages += 1
+                ac.last_message_time = now
+
+        # expire aircraft we have not seen for a while
+        for ac in list(self.aircraft.values()):
+            if (now - ac.last_message_time) > self.expiry_age:
+                del self.aircraft[ac.icao]
+
+        self.last_aircraft_update = now
 
     def send_aircraft_report(self):
-        if self.newly_seen:
-            #log('Telling server about {0} new aircraft', len(self.newly_seen))
-            self.server.send_seen(self.newly_seen)
-            self.newly_seen.clear()
+        all_aircraft = {x.icao for x in self.aircraft.values()}
+        seen_ac = all_aircraft.difference(self.reported)
+        lost_ac = self.reported.difference(all_aircraft)
+
+        if seen_ac:
+            self.server.send_seen(seen_ac)
+        if lost_ac:
+            self.server.send_lost(lost_ac)
+
+        self.reported = all_aircraft
 
     def send_rate_report(self, now):
         # report ADS-B position rate stats
         rate_report = {}
         for ac in self.aircraft.values():
             interval = now - ac.rate_measurement_start
-            if interval > 0 and (now - ac.last_position_time) < 60:
+            if interval > 0 and ac.recent_adsb_positions > 0:
                 rate = 1.0 * ac.recent_adsb_positions / interval
                 ac.rate_measurement_start = now
                 ac.recent_adsb_positions = 0
@@ -149,17 +186,6 @@ class Coordinator:
 
         if rate_report:
             self.server.send_rate_report(rate_report)
-
-    def expire(self, now):
-        discarded = []
-        for ac in list(self.aircraft.values()):
-            if (now - ac.last_message_time) > 60:
-                if ac.reported:
-                    discarded.append(ac.icao)
-                del self.aircraft[ac.icao]
-
-        if discarded:
-            self.server.send_lost(discarded)
 
     def periodic_stats(self, now):
         log('Receiver status: {0}', self.receiver.state)
@@ -169,7 +195,7 @@ class Coordinator:
         adsb_req = adsb_total = modes_req = modes_total = 0
         now = monotonic_time()
         for ac in self.aircraft.values():
-            if now - ac.last_position_time < 60:
+            if now - ac.last_position_time < self.position_expiry_age:
                 adsb_total += 1
                 if ac.requested:
                     adsb_req += 1
@@ -194,6 +220,7 @@ class Coordinator:
         self.requested_traffic = set()
         self.newly_seen = set()
         self.aircraft = {}
+        self.reported = set()
         self.next_report = monotonic_time() + self.report_interval
         if self.receiver.state != 'ready':
             self.receiver.reconnect()
@@ -217,6 +244,7 @@ class Coordinator:
             if ac:
                 ac.requested = True
         self.requested_traffic.update(icao_list)
+        self.update_receiver_filter()
 
     def server_stop_sending(self, icao_list):
         for icao in icao_list:
@@ -224,6 +252,19 @@ class Coordinator:
             if ac:
                 ac.requested = False
         self.requested_traffic.difference_update(icao_list)
+        self.update_receiver_filter()
+
+    def update_receiver_filter(self):
+        now = monotonic_time()
+
+        mlat = set()
+        for icao in self.requested_traffic:
+            ac = self.aircraft.get(icao)
+            if not ac or (now - ac.last_position_time > self.position_expiry_age):
+                # requested, and we have not seen a recent ADS-B message from it
+                mlat.add(icao)
+
+        self.receiver.update_filter(mlat)
 
     # callbacks from receiver input
 
@@ -233,9 +274,9 @@ class Coordinator:
     def input_disconnected(self):
         self.server.send_input_disconnected()
         # expire everything
-        discarded = list(self.aircraft.keys())
         self.aircraft.clear()
-        self.server.send_lost(discarded)
+        self.server.send_lost(self.reported)
+        self.reported.clear()
 
     @mlat.profile.trackcpu
     def input_received_messages(self, messages):
@@ -277,14 +318,11 @@ class Coordinator:
 
         if ac.messages < 10:
             return   # wait for more messages
-        if not ac.reported:
-            self.report_aircraft(ac)
-            return
         if not ac.requested:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < 60:
+        if now - ac.last_position_time < self.position_expiry_age:
             return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
@@ -304,14 +342,11 @@ class Coordinator:
 
         if ac.messages < 10:
             return   # wait for more messages
-        if not ac.reported:
-            self.report_aircraft(ac)
-            return
         if not ac.requested:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < 60:
+        if now - ac.last_position_time < self.position_expiry_age:
             return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
@@ -329,9 +364,6 @@ class Coordinator:
         ac.messages += 1
         ac.last_message_time = now
         if ac.messages < 10:
-            return
-        if not ac.reported:
-            self.report_aircraft(ac)
             return
 
         if not message.even_cpr and not message.odd_cpr:

@@ -39,6 +39,24 @@ class ReceiverConnection(ReconnectingConnection):
         self.last_data_received = None
         self.mode = mode
 
+        # set up filters
+
+        # this set gets put into specific_filter in
+        # multiple places, so we can just add an address
+        # to this set when we want mlat data.
+        self.interested_mlat = set()
+
+        self.default_filter = [False] * 32
+        self.specific_filter = [None] * 32
+
+        # specific filters for mlat
+        for df in (0, 4, 5, 11, 16, 20, 21):
+            self.specific_filter[df] = self.interested_mlat
+
+        # we want all DF17 messages so we can report position rates
+        # and distinguish ADS-B from Mode-S-only aircraft
+        self.default_filter[17] = True
+
     def detect(self, data):
         n, detected_mode = detect_data_format(data)
         if detected_mode is not None:
@@ -76,6 +94,10 @@ class ReceiverConnection(ReconnectingConnection):
             self.feed = self.detect
         else:
             self.feed = self.reader.feed
+        # configure filter, seen-tracking
+        self.reader.seen = set()
+        self.reader.default_filter = self.default_filter
+        self.reader.specific_filter = self.specific_filter
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
@@ -97,6 +119,23 @@ class ReceiverConnection(ReconnectingConnection):
             self.disconnect('No data (not even keepalives) received for {0:.0f} seconds'.format(
                 self.inactivity_timeout))
             self.reconnect()
+
+    def recent_aircraft(self):
+        """Return the set of aircraft seen from the receiver since the
+        last call to recent_aircraft(). This includes aircraft where no
+        messages were forwarded due to filtering."""
+        recent = set(self.reader.seen)
+        self.reader.seen.clear()
+        return recent
+
+    def update_filter(self, wanted_mlat):
+        """Update the receiver filters so we receive mlat-relevant messages
+        (basically, anything that's not DF17) for the given addresses only."""
+        # do this in place, because self.interested_mlat is referenced
+        # from the filters installed on the reader; updating the set in
+        # place automatically updates all the DF-specific filters.
+        self.interested_mlat.clear()
+        self.interested_mlat.update(wanted_mlat)
 
     @mlat.profile.trackcpu
     def handle_read(self):
@@ -132,8 +171,11 @@ class ReceiverConnection(ReconnectingConnection):
         else:
             self.residual = None
 
+        global_stats.receiver_rx_messages += self.reader.received_messages
+        global_stats.receiver_rx_filtered += self.reader.suppressed_messages
+        self.reader.received_messages = self.reader.suppressed_messages = 0
+
         if messages:
-            global_stats.receiver_rx_messages += len(messages)
             self.coordinator.input_received_messages(messages)
 
         if pending_error:
@@ -143,7 +185,7 @@ class ReceiverConnection(ReconnectingConnection):
                 if self.residual is None:
                     self.feed(b'')
                 else:
-                    self.feed(residual)
+                    self.feed(self.residual)
             except ValueError as e:
                 log("Parsing receiver data failed: {e}", e=str(e))
                 self.close()
@@ -184,7 +226,7 @@ def detect_data_format(data):
                 avr_prefix = None
 
             if avr_prefix:
-                firstbyte = data[i + avr_prefix];
+                firstbyte = data[i + avr_prefix]
                 if firstbyte in (ord('@'), ord('%'), ord('<')):
                     mode = _modes.AVRMLAT
                     offset = avr_prefix
@@ -196,7 +238,7 @@ def detect_data_format(data):
             reader = _modes.Reader(mode)
             # don't actually want any data, just parse it
             reader.wants_events = False
-            reader.default_filter = [False for i in range(32)]
+            reader.default_filter = [False] * 32
             try:
                 n, _, pending_error = reader.feed(data[i + offset:])
                 if n > 0 and not pending_error:

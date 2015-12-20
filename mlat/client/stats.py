@@ -36,15 +36,19 @@ class Stats:
         self.server_udp_bytes = 0
         self.receiver_rx_bytes = 0
         self.receiver_rx_messages = 0
+        self.receiver_rx_filtered = 0
         self.mlat_positions = 0
 
     def log_and_reset(self):
         now = monotonic_time()
         elapsed = now - self.start
-        log('Receiver: {0:6.1f} msg/s received     {1:4.1f}kB/s from receiver',
+
+        processed = self.receiver_rx_messages - self.receiver_rx_filtered
+        log('Receiver: {0:6.1f} msg/s received     {1:6.1f} msg/s processed ({2:.0f}%)',
             self.receiver_rx_messages / elapsed,
-            self.receiver_rx_bytes / elapsed / 1000.0)
-        log('Server:   {0:6.1f} kB/s from server   {1:4.1f}kB/s TCP to server  {2:4.1f}kB/s UDP to server',
+            processed / elapsed,
+            (self.receiver_rx_messages == 0) and 0 or (100.0 * processed / self.receiver_rx_messages))
+        log('Server:   {0:6.1f} kB/s from server   {1:4.1f}kB/s TCP to server  {2:6.1f}kB/s UDP to server',
             self.server_rx_bytes / elapsed / 1000.0,
             self.server_tx_bytes / elapsed / 1000.0,
             self.server_udp_bytes / elapsed / 1000.0)
