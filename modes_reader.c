@@ -376,7 +376,7 @@ static void set_decoder_mode(modesreader *self, decoder_mode newmode)
 
     case DECODER_RADARCAPE:
         self->frequency = 1000000000ULL;
-        self->epoch = "utc";           /* assumed */
+        self->epoch = "utc_midnight";  /* assumed */
         break;
 
     case DECODER_AVRMLAT:
