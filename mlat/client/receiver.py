@@ -237,7 +237,7 @@ def detect_data_format(data):
         if mode:
             reader = _modes.Reader(mode)
             # don't actually want any data, just parse it
-            reader.wants_events = False
+            reader.want_events = False
             reader.default_filter = [False] * 32
             try:
                 n, _, pending_error = reader.feed(data[i + offset:])
