@@ -93,7 +93,7 @@ def make_inputs_group(parser):
     inputs.add_argument('--input-type',
                         help="Sets the input receiver type.",
                         choices=_receiver_types.keys(),
-                        default='auto')
+                        default='dump1090')
     inputs.add_argument('--input-connect',
                         help="host:port to connect to for Mode S traffic.  Required.",
                         required=True,
