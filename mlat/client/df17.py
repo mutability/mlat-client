@@ -220,7 +220,7 @@ def make_position_frame(metype, addr, elat, elon, ealt, oddflag):
     frame[10] = elon & 255           # CPR longitude (low bits)
 
     # CRC
-    c = _modes.crc_residual(frame)
+    c = _modes.crc(frame[0:11])
     frame[11] = (c >> 16) & 255
     frame[12] = (c >> 8) & 255
     frame[13] = c & 255
@@ -259,7 +259,7 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate):
     frame[10] = 0                    # GNSS/Baro alt offset, no data
 
     # CRC
-    c = _modes.crc_residual(frame)
+    c = _modes.crc(frame[0:11])
     frame[11] = (c >> 16) & 255
     frame[12] = (c >> 8) & 255
     frame[13] = c & 255
