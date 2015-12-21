@@ -1,3 +1,9 @@
+mlat-client (0.2.5~dev) UNRELEASED; urgency=medium
+
+  * In development.
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 21 Dec 2015 01:52:36 +0000
+
 mlat-client (0.2.4) unstable; urgency=medium
 
   * Better periodic stats logging.
