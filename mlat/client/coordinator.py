@@ -49,7 +49,7 @@ class Aircraft:
 class Coordinator:
     update_interval = 5.0
     report_interval = 30.0
-    stats_interval = 60.0
+    stats_interval = 900.0
     position_expiry_age = 30.0
     expiry_age = 60.0
 
