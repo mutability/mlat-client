@@ -680,7 +680,13 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
              * the PPS)
              */
             if (type != '4') {
-                timestamp = timestamp - (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
+                uint64_t adjust = (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
+                if (adjust <= timestamp) {
+                    timestamp = timestamp - adjust;
+                } else {
+                    /* wrap it to the previous day */
+                    timestamp = timestamp + 86400 * 1000000000ULL - adjust;
+                }
             }
 
             /* check for end of day rollover */
