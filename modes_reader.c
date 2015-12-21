@@ -502,6 +502,13 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
         return;
     }
 
+    if (self->decoder_mode == DECODER_RADARCAPE && timestamp >= (86340 * 1000000000ULL) && self->last_timestamp <= (60 * 1000000000ULL)) {
+        /* in radarcape mode, don't allow last_timestamp to roll back to the previous day
+         * as we will have already issued an epoch reset
+         */
+        return;
+    }
+
     self->last_timestamp = timestamp;
 }
 
