@@ -292,10 +292,10 @@ class Coordinator:
         # decoder mode changed, clock parameters possibly changed
         self.freq = message.eventdata['frequency']
         self.recent_jumps = 0
-        self.server.send_clock_reset('Decoder mode changed to {mode}'.format(mode=message.eventdata['mode']),
-                                     mode=message.eventdata['mode'],
+        self.server.send_clock_reset(reason='Decoder mode changed to {mode}'.format(mode=message.eventdata['mode']),
+                                     frequency=message.eventdata['frequency'],
                                      epoch=message.eventdata['epoch'],
-                                     frequency=message.eventdata['frequency'])
+                                     mode=message.eventdata['mode'])
 
     def received_epoch_rollover_event(self, message, now):
         # epoch rollover, reset clock
