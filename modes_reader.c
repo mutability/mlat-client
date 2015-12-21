@@ -957,10 +957,24 @@ static PyObject *feed_sbs(modesreader *self, Py_buffer *buffer, int max_messages
 
         /* we don't use timestamp_update or timestamp_check here because SBS is "special" */
 
-        /* merge in top bits */
+        /* The SBS timestamp is only 24 bits wide; at 20MHz this overflows more than once
+         * a second (about every 839ms). To get a useful timestamp for mlat synchronization,
+         * we have to widen the timestamp.
+         *
+         * It wasn't reliable to do this based on the system clock, there are enough
+         * unpredictable delays between the SBS and mlat-client that it didn't work well.
+         * Instead, we assume that we will be receiving at least one message per 839ms.
+         * so if we ever see a timestamp that has gone backwards, it must be due to
+         * exactly one overflow of the timestamp counter.
+         *
+         * This is usually true in cases where we see enough traffic for mlat/sync. When it
+         * isn't true, you will get synchronization jumps that are a multiple of 839ms.
+         */
+
+        /* merge in top bits of the current widened counter */
         timestamp = timestamp | (self->last_timestamp & 0xFFFFFFFFFF000000ULL);
 
-        /* check for rollover */
+        /* check for rollover, if it happened then increase the widened part */
         if (timestamp < self->last_timestamp)
             timestamp += (1 << 24);
 
