@@ -34,13 +34,16 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         self.port = port
 
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.set_reuse_addr()
-        self.bind(('', port))
-        self.listen(0)
+        try:
+            self.set_reuse_addr()
+            self.bind(('', port))
+            self.listen(0)
+        except:
+            self.close()
+            raise
 
         self.output_channels = set()
         self.connection_factory = connection_factory
-
         log('Listening for {0} on port {1}', connection_factory.describe(), port)
 
     def handle_accept(self):

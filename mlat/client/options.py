@@ -24,6 +24,7 @@ import _modes
 from mlat.client.receiver import ReceiverConnection
 from mlat.client.output import OutputListener, OutputConnector
 from mlat.client.output import BasestationConnection, ExtBasestationConnection, BeastConnection
+from mlat.client.util import log
 
 _receiver_types = {
     # input type -> decoder mode, server clock type
@@ -117,10 +118,21 @@ def connection_mode(args):
     return _receiver_types[args.input_type][0]
 
 
-def results_format(s):
+def make_results_group(parser):
+    results = parser.add_argument_group('Results output')
+    results.add_argument('--results',
+                         help="""
+<protocol>,connect,host:port or <protocol>,listen,port.
+Protocol may be 'basestation', 'ext_basestation', or 'beast'. Can be specified multiple times.""",
+                         action='append',
+                         default=[])
+    return results
+
+
+def output_factory(s):
     parts = s.split(',')
     if len(parts) != 3:
-        raise argparse.ArgumentTypeError('{0}: exactly three comma-separated values are needed (see help)'.format(s))
+        raise ValueError('exactly three comma-separated values are needed (see help)')
 
     ctype, cmode, addr = parts
 
@@ -131,36 +143,37 @@ def results_format(s):
     }
 
     c = connections.get(ctype)
-    if ctype is None:
-        raise argparse.ArgumentTypeError(
-            "{0}: connection type {1} is not supported; options are: {2}".format(
-                s, parts[0], ','.join(connections.keys())))
+    if c is None:
+        raise ValueError("connection type '{0}' is not supported; options are: '{1}'".format(
+            ctype, "','".join(connections.keys())))
 
     if cmode == 'listen':
         return functools.partial(OutputListener, port=int(addr), connection_factory=c)
     elif cmode == 'connect':
         return functools.partial(OutputConnector, addr=hostport(addr), connection_factory=c)
     else:
-        raise argparse.ArgumentTypeError(
-            "{0}: connection mode {1} is not supported; options are 'connect' or 'listen'".format(s, cmode))
-
-
-def make_results_group(parser):
-    results = parser.add_argument_group('Results output')
-    results.add_argument('--results',
-                         help="""
-<protocol>,connect,host:port or <protocol>,listen,port.
-Protocol may be 'basestation', 'ext_basestation', or 'beast'. Can be specified multiple times.""",
-                         type=results_format,
-                         action='append',
-                         default=[])
-    return results
+        raise ValueError("connection mode '{0}' is not supported; options are: 'connect','listen'".format(cmode))
 
 
 def build_outputs(args):
     outputs = []
-    for factory in args.results:
-        outputs.append(factory())
+    for s in args.results:
+        try:
+            factory = output_factory(s)
+        except ValueError as e:
+            log("Warning: Ignoring bad results output option '{0}': {1}",
+                s, str(e))
+            continue
+
+        try:
+            output = factory()
+        except Exception as e:
+            log("Warning: Could not create results output '{0}': {1}",
+                s, str(e))
+            continue
+
+        outputs.append(output)
+
     return outputs
 
 
