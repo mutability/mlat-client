@@ -47,7 +47,7 @@ class Stats:
         log('Receiver: {0:6.1f} msg/s received     {1:6.1f} msg/s processed ({2:.0f}%)',
             self.receiver_rx_messages / elapsed,
             processed / elapsed,
-            (self.receiver_rx_messages == 0) and 0 or (100.0 * processed / self.receiver_rx_messages))
+            0 if self.receiver_rx_messages == 0 else 100.0 * processed / self.receiver_rx_messages)
         log('Server:   {0:6.1f} kB/s from server   {1:4.1f}kB/s TCP to server  {2:6.1f}kB/s UDP to server',
             self.server_rx_bytes / elapsed / 1000.0,
             self.server_tx_bytes / elapsed / 1000.0,
