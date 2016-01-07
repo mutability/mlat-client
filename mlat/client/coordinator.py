@@ -162,7 +162,7 @@ class Coordinator:
         self.last_aircraft_update = now
 
     def send_aircraft_report(self):
-        all_aircraft = {x.icao for x in self.aircraft.values()}
+        all_aircraft = {x.icao for x in self.aircraft.values() if x.messages > 1}
         seen_ac = all_aircraft.difference(self.reported)
         lost_ac = self.reported.difference(all_aircraft)
 
@@ -195,6 +195,9 @@ class Coordinator:
         adsb_req = adsb_total = modes_req = modes_total = 0
         now = monotonic_time()
         for ac in self.aircraft.values():
+            if ac.messages < 2:
+                continue
+
             if now - ac.last_position_time < self.position_expiry_age:
                 adsb_total += 1
                 if ac.requested:

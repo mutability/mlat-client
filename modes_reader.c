@@ -1261,9 +1261,14 @@ static int filter_message(modesreader *self, PyObject *o)
     }
 
     if (self->seen != NULL && self->seen != Py_None) {
-        /* note that we saw this aircraft, even if the message is filtered */
-        if (PySet_Add(self->seen, message->address) < 0) {
-            return -1;
+        if (message->df == 11 || message->df == 17 || message->df == 18) {
+            /* note that we saw this aircraft, even if the message is filtered.
+             * only do this for CRC-checked messages as we get a lot of noise
+             * otherwise.
+             */
+            if (PySet_Add(self->seen, message->address) < 0) {
+                return -1;
+            }
         }
     }
 
