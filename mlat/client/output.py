@@ -25,7 +25,7 @@ import errno
 
 from mlat.client.net import LoggingMixin
 from mlat.client.util import log, monotonic_time
-from mlat.client.df17 import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame
+from mlat.client.synthetic_es import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame
 
 
 class OutputListener(LoggingMixin, asyncore.dispatcher):

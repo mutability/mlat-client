@@ -24,7 +24,11 @@ import bisect
 # all-dancing Mode S module that combined _modes, this code,
 # and the server side Mode S decoder. A task for another day..
 
-__all__ = ('make_altitude_only_frame', 'make_position_frame_pair', 'make_velocity_frame')
+__all__ = ('make_altitude_only_frame', 'make_position_frame_pair', 'make_velocity_frame', 'DF17', 'DF18')
+
+# types of frame we can build
+DF17 = 'DF17'
+DF18 = 'DF18'
 
 # lookup table for CPR_NL
 nl_table = (
@@ -179,35 +183,44 @@ def encode_vrate(vr):
         return vr | signbit
 
 
-def make_altitude_only_frame(addr, lat, lon, alt):
+def make_altitude_only_frame(addr, lat, lon, alt, df=DF18):
     """Create an altitude-only DF17 frame"""
     # ME type 0: airborne position, horizontal position unavailable
-    return make_position_frame(0, addr, 0, 0, encode_altitude(alt), False)
+    return make_position_frame(0, addr, 0, 0, encode_altitude(alt), False, df)
 
 
-def make_position_frame_pair(addr, lat, lon, alt):
+def make_position_frame_pair(addr, lat, lon, alt, df=DF18):
     """Create a pair of DF17 frames - one odd, one even - for the given position"""
     ealt = encode_altitude(alt)
     even_lat, even_lon = cpr_encode(lat, lon, False)
     odd_lat, odd_lon = cpr_encode(lat, lon, True)
 
     # ME type 18: airborne position, baro alt, NUCp=0
-    eframe = make_position_frame(18, addr, even_lat, even_lon, ealt, False)
-    oframe = make_position_frame(18, addr, odd_lat, odd_lon, ealt, True)
+    eframe = make_position_frame(18, addr, even_lat, even_lon, ealt, False, df)
+    oframe = make_position_frame(18, addr, odd_lat, odd_lon, ealt, True, df)
 
     return eframe, oframe
 
 
-def make_position_frame(metype, addr, elat, elon, ealt, oddflag):
-    """Create single DF17 position frame"""
+def make_position_frame(metype, addr, elat, elon, ealt, oddflag, df):
+    """Create single DF17/DF18 position frame"""
 
     frame = bytearray(14)
 
-    frame[0] = (17 << 3) | (5)       # DF, CA
+    if df is DF17:
+        # DF=17, CA=6 (ES, Level 2 or above transponder and ability
+        # to set CA code 7 and either airborne or on the ground)
+        frame[0] = (17 << 3) | (6)
+    elif df is DF18:
+        # DF=18, CF=2 (ES/NT, fine TIS-B message)
+        frame[0] = (18 << 3) | (2)
+    else:
+        raise ValueError('df must be DF17 or DF18')
+
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA
     frame[3] = addr & 255            # AA
-    frame[4] = (metype << 3)         # ME type, status 0, SAF 0
+    frame[4] = (metype << 3)         # ME type, status 0, SAF/IMF 0
     frame[5] = (ealt >> 4) & 255     # Altitude (MSB)
     frame[6] = (ealt & 15) << 4      # Altitude (LSB)
     if oddflag:
@@ -228,8 +241,8 @@ def make_position_frame(metype, addr, elat, elon, ealt, oddflag):
     return frame
 
 
-def make_velocity_frame(addr, nsvel, ewvel, vrate):
-    """Create a DF17 airborne velocity frame"""
+def make_velocity_frame(addr, nsvel, ewvel, vrate, df=DF18):
+    """Create a DF17/DF18 airborne velocity frame"""
 
     supersonic = (nsvel is not None and abs(nsvel) > 1000) or (ewvel is not None and abs(ewvel) > 1000)
 
@@ -239,7 +252,16 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate):
 
     frame = bytearray(14)
 
-    frame[0] = (17 << 3) | (5)       # DF, CA
+    if df is DF17:
+        # DF=17, CA=6 (ES, Level 2 or above transponder and ability
+        # to set CA code 7 and either airborne or on the ground)
+        frame[0] = (17 << 3) | (6)
+    elif df is DF18:
+        # DF=18, CF=2 (ES/NT, fine TIS-B message)
+        frame[0] = (18 << 3) | (2)
+    else:
+        raise ValueError('df must be DF17 or DF18')
+
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA
     frame[3] = addr & 255            # AA
@@ -249,7 +271,7 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate):
     else:
         frame[4] |= 1                # subtype 1, ground speed, subsonic
 
-    frame[5] = (e_ew >> 8) & 7       # intent change 0, IFR 0, NUCr 0, E/W velocity top bits
+    frame[5] = (e_ew >> 8) & 7       # intent change 0, IFR/IMF 0, NUCr 0, E/W velocity top bits
     frame[6] = (e_ew & 255)          # E/W velocity low bits
     frame[7] = (e_ns >> 3) & 255     # N/S velocity top bits
     frame[8] = (e_ns & 7) << 5       # N/S velocity low bits
