@@ -28,15 +28,16 @@ from mlat.client.util import log
 
 _receiver_types = {
     # input type -> decoder mode, server clock type
-    # the server clock type is (a) needed for legacy servers that don't understand
-    # the clock frequency / epoch data and (b) newer servers can use it to set
-    # jitter/error values
+    # the server clock type is used by the server to set
+    # the clock jitter etc; clock frequency and
+    # epoch are provided by the client.
 
     'auto':            (None,             'unknown'),
     'dump1090':        (_modes.BEAST,     'dump1090'),
     'beast':           (_modes.BEAST,     'beast'),
-    'radarcape_12mhz': (_modes.BEAST,     'radarcape_12mhz'),
-    'radarcape_gps':   (_modes.RADARCAPE, 'radarcape_gps'),
+    'radarcape_12mhz': (_modes.BEAST,     'radarcape_12mhz'),  # compat
+    'radarcape_gps':   (_modes.RADARCAPE, 'radarcape_gps'),    # compat
+    'radarcape':       (_modes.BEAST,     'radarcape'),        # autodetects gps if present
     'sbs':             (_modes.SBS,       'sbs'),
     'avrmlat':         (_modes.AVRMLAT,   'unknown'),
 }
