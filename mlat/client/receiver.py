@@ -57,6 +57,8 @@ class ReceiverConnection(ReconnectingConnection):
         # and distinguish ADS-B from Mode-S-only aircraft
         self.default_filter[17] = True
 
+        self.reset_connection()
+
     def detect(self, data):
         n, detected_mode = detect_data_format(data)
         if detected_mode is not None:
