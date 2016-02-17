@@ -50,6 +50,8 @@ server's administrator for configuration instructions.
 * The FlightRadar24 radarcape-based receiver. This produces a deliberately
 crippled timestamp in its output, making it useless for multilateration.
 If you have one of these, you should ask FR24 to fix this.
+* airspy_adsb. This apparently only produces data in a custom format that
+mlat-client does not understand.
 
 ## License
 
