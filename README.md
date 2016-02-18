@@ -41,6 +41,7 @@ server's administrator for configuration instructions.
  * dump1090_mr, dump1090-mutability, FlightAware's dump1090
  * modesdeco (probably?)
  * an actual Mode-S Beast
+ * airspy_adsb in Beast output mode
 * SBS receivers
 * Radarcape in 12MHz mode
 * Radarcape in GPS mode
@@ -50,8 +51,6 @@ server's administrator for configuration instructions.
 * The FlightRadar24 radarcape-based receiver. This produces a deliberately
 crippled timestamp in its output, making it useless for multilateration.
 If you have one of these, you should ask FR24 to fix this.
-* airspy_adsb. This apparently only produces data in a custom format that
-mlat-client does not understand.
 
 ## License
 
