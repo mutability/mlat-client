@@ -235,11 +235,11 @@ class Coordinator:
         self.next_expiry = None
 
     def server_mlat_result(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                           callsign, squawk, error_est, nstations):
+                           callsign, squawk, error_est, nstations, anon):
         global_stats.mlat_positions += 1
         for o in self.outputs:
             o.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                            callsign, squawk, error_est, nstations)
+                            callsign, squawk, error_est, nstations, anon)
 
     def server_start_sending(self, icao_list):
         for icao in icao_list:

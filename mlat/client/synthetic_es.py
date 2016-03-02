@@ -29,6 +29,7 @@ __all__ = ('make_altitude_only_frame', 'make_position_frame_pair', 'make_velocit
 # types of frame we can build
 DF17 = 'DF17'
 DF18 = 'DF18'
+DF18ANON = 'DF18ANON'
 
 # lookup table for CPR_NL
 nl_table = (
@@ -214,8 +215,11 @@ def make_position_frame(metype, addr, elat, elon, ealt, oddflag, df):
     elif df is DF18:
         # DF=18, CF=2 (ES/NT, fine TIS-B message)
         frame[0] = (18 << 3) | (2)
+    elif df is DF18ANON:
+        # DF=18, CF=5 (ES/NT, TIS-B with anonymous 24-bit address)
+        frame[0] = (18 << 3) | (5)
     else:
-        raise ValueError('df must be DF17 or DF18')
+        raise ValueError('df must be DF17 or DF18 or DF18ANON')
 
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA
@@ -259,8 +263,11 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate, df=DF18):
     elif df is DF18:
         # DF=18, CF=2 (ES/NT, fine TIS-B message)
         frame[0] = (18 << 3) | (2)
+    elif df is DF18ANON:
+        # DF=18, CF=5 (ES/NT, TIS-B with anonymous 24-bit address)
+        frame[0] = (18 << 3) | (5)
     else:
-        raise ValueError('df must be DF17 or DF18')
+        raise ValueError('df must be DF17 or DF18 or DF18ANON')
 
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA

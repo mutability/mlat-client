@@ -530,6 +530,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                                                 callsign=callsign,
                                                 squawk=squawk,
                                                 error_est=error_est,
-                                                nstations=nstations)
+                                                nstations=nstations,
+                                                anon=False)
         else:
             log('ignoring request from server: {0}', request)

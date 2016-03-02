@@ -25,7 +25,7 @@ import errno
 
 from mlat.client.net import LoggingMixin
 from mlat.client.util import log, monotonic_time
-from mlat.client.synthetic_es import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame
+from mlat.client.synthetic_es import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame, DF18, DF18ANON
 
 
 class OutputListener(LoggingMixin, asyncore.dispatcher):
@@ -57,10 +57,10 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         self.output_channels.add(self.connection_factory(self, new_socket, address))
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations):
+                      callsign, squawk, error_est, nstations, anon):
         for channel in list(self.output_channels):
             channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                                  callsign, squawk, error_est, nstations)
+                                  callsign, squawk, error_est, nstations, anon)
 
     def heartbeat(self, now):
         for channel in list(self.output_channels):
@@ -90,10 +90,10 @@ class OutputConnector:
         self.output_channel.connect_now()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations):
+                      callsign, squawk, error_est, nstations, anon):
         if self.output_channel:
             self.output_channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                                              callsign, squawk, error_est, nstations)
+                                              callsign, squawk, error_est, nstations, anon)
 
     def heartbeat(self, now):
         if self.output_channel:
@@ -195,7 +195,7 @@ class BasicConnection(LoggingMixin, asyncore.dispatcher):
 
 class BasestationConnection(BasicConnection):
     heartbeat_interval = 30.0
-    template = 'MSG,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'  # noqa
+    template = 'MSG,3,1,1,{addrtype}{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'  # noqa
 
     def __init__(self, listener, socket, addr):
         super().__init__(listener, socket, addr)
@@ -214,7 +214,7 @@ class BasestationConnection(BasicConnection):
                 self.handle_error()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations):
+                      callsign, squawk, error_est, nstations, anon):
         if not self.connected:
             return
 
@@ -231,7 +231,13 @@ class BasestationConnection(BasicConnection):
             speed = None
             heading = None
 
+        if anon:
+            addrtype = '~'
+        else:
+            addrtype = ''
+
         line = self.template.format(addr=addr,
+                                    addrtype=addrtype,
                                     rcv_date=format_date(timestamp),
                                     rcv_time=format_time(timestamp),
                                     now_date=format_date(now),
@@ -256,7 +262,7 @@ class BasestationConnection(BasicConnection):
 
 
 class ExtBasestationConnection(BasestationConnection):
-    template = 'MLAT,3,1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est}'  # noqa
+    template = 'MLAT,3,1,1,{addrtype}{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog},{nstations},,{error_est}'  # noqa
 
     @staticmethod
     def describe():
@@ -302,17 +308,22 @@ class BeastConnection(BasicConnection):
         self.last_write = monotonic_time()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations):
+                      callsign, squawk, error_est, nstations, anon):
         if not self.connected:
             return
 
+        if anon:
+            df = DF18ANON
+        else:
+            df = DF18
+
         if lat is None or lon is None:
             if alt is not None:
-                self.send_frame(make_altitude_only_frame(addr, alt))
+                self.send_frame(make_altitude_only_frame(addr, alt, df=df))
         else:
-            even, odd = make_position_frame_pair(addr, lat, lon, alt)
+            even, odd = make_position_frame_pair(addr, lat, lon, alt, df=df)
             self.send_frame(even)
             self.send_frame(odd)
 
         if nsvel is not None or ewvel is not None or vrate is not None:
-            self.send_frame(make_velocity_frame(addr, nsvel, ewvel, vrate))
+            self.send_frame(make_velocity_frame(addr, nsvel, ewvel, vrate, df=df))
