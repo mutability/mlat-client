@@ -52,8 +52,19 @@ class UdpServerConnection:
         self.sock = None
 
     def start(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.connect((self.host, self.port))
+        addrlist = socket.getaddrinfo(host=self.host,
+                                      port=self.port,
+                                      family=socket.AF_UNSPEC,
+                                      type=socket.SOCK_DGRAM,
+                                      proto=0,
+                                      flags=socket.AI_NUMERICHOST)
+
+        if len(addrlist) != 1:
+            # expect exactly one result since we specify AI_NUMERICHOST
+            raise IOError('unexpectedly got {0} results when resolving {1}'.format(len(addrlist), self.host))
+        a_family, a_type, a_proto, a_canonname, a_sockaddr = addrlist[0]
+        self.sock = socket.socket(a_family, a_type, a_proto)
+        self.sock.connect(a_sockaddr)
 
     def prepare_header(self, timestamp):
         self.base_timestamp = timestamp
