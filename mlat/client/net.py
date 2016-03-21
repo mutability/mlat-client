@@ -52,6 +52,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         asyncore.dispatcher.__init__(self)
         self.host = host
         self.port = port
+        self.addrlist = []
         self.state = 'disconnected'
         self.reconnect_at = None
 
@@ -87,8 +88,23 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 
     def schedule_reconnect(self):
         if self.reconnect_at is None:
-            log('Reconnecting in {0} seconds', self.reconnect_interval)
-            self.reconnect_at = monotonic_time() + self.reconnect_interval
+            if len(self.addrlist) > 0:
+                # we still have more addresses to try
+                # nb: asyncore breaks in odd ways if you try
+                # to reconnect immediately at this point
+                # (pending events for the old socket go to
+                # the new socket) so do it in 0.5s time
+                # so the caller can clean up the old
+                # socket and discard the events.
+                interval = 0.5
+            else:
+                interval = self.reconnect_interval
+
+            log('Reconnecting in {0} seconds', interval)
+            self.reconnect_at = monotonic_time() + interval
+
+    def refresh_address_list(self):
+        self.address
 
     def reconnect(self):
         if self.state != 'disconnected':
@@ -96,14 +112,29 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 
         try:
             self.reset_connection()
-            self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.connect((self.host, self.port))
+
+            if len(self.addrlist) == 0:
+                # ran out of addresses to try, resolve it again
+                self.addrlist = socket.getaddrinfo(host=self.host,
+                                                   port=self.port,
+                                                   family=socket.AF_UNSPEC,
+                                                   type=socket.SOCK_STREAM,
+                                                   proto=0,
+                                                   flags=0)
+
+            # try the next available address
+            a_family, a_type, a_proto, a_canonname, a_sockaddr = self.addrlist[0]
+            del self.addrlist[0]
+
+            sock = self.create_socket(a_family, a_type)
+            self.connect(a_sockaddr)
         except socket.error as e:
             log('Connection to {host}:{port} failed: {ex!s}', host=self.host, port=self.port, ex=e)
             self.close()
 
     def handle_connect(self):
         self.state = 'connected'
+        self.addrlist = []  # connect was OK, re-resolve next time
         self.start_connection()
 
     def handle_read(self):
