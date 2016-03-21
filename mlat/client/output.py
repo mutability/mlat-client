@@ -33,7 +33,18 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         asyncore.dispatcher.__init__(self)
         self.port = port
 
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.a_type = socket.SOCK_STREAM
+        try:
+            # bind to V6 so we can accept both V4 and V6
+            # (asyncore makes it a hassle to bind to more than
+            # one address here)
+            self.a_family = socket.AF_INET6
+            self.create_socket(self.a_family, self.a_type)
+        except socket.error as e:
+            # maybe no v6 support?
+            self.a_family = socket.AF_INET
+            self.create_socket(self.a_family, self.a_type)
+
         try:
             self.set_reuse_addr()
             self.bind(('', port))
@@ -54,7 +65,7 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         new_socket, address = accepted
         log('Accepted {0} from {1}:{2}', self.connection_factory.describe(), address[0], address[1])
 
-        self.output_channels.add(self.connection_factory(self, new_socket, address))
+        self.output_channels.add(self.connection_factory(self, new_socket, self.a_type, self.a_family, address))
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
                       callsign, squawk, error_est, nstations, anon):
@@ -84,9 +95,30 @@ class OutputConnector:
 
         self.output_channel = None
         self.next_reconnect = monotonic_time()
+        self.addrlist = []
+
+    def log(self, fmt, *args, **kwargs):
+        log('{what} with {host}:{port}: ' + fmt, *args, what=self.describe(), host=self.addr[0], port=self.addr[1], **kwargs)
 
     def reconnect(self):
-        self.output_channel = self.connection_factory(self, None, self.addr)
+        if len(self.addrlist) == 0:
+            try:
+                self.addrlist = socket.getaddrinfo(host=self.addr[0],
+                                                   port=self.addr[1],
+                                                   family=socket.AF_UNSPEC,
+                                                   type=socket.SOCK_STREAM,
+                                                   proto=0,
+                                                   flags=0)
+            except socket.error as e:
+                self.log('{ex!s}', ex=e)
+                self.next_reconnect = monotonic_time() + self.reconnect_interval
+                return
+
+        # try the next available address
+        a_family, a_type, a_proto, a_canonname, a_sockaddr = self.addrlist[0]
+        del self.addrlist[0]
+
+        self.output_channel = self.connection_factory(self, None, a_family, a_type, a_sockaddr)
         self.output_channel.connect_now()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
@@ -129,9 +161,11 @@ def csv_quote(s):
 
 
 class BasicConnection(LoggingMixin, asyncore.dispatcher):
-    def __init__(self, listener, socket, addr):
+    def __init__(self, listener, socket, s_family, s_type, addr):
         super().__init__(sock=socket)
         self.listener = listener
+        self.s_family = s_family
+        self.s_type = s_type
         self.addr = addr
         self.writebuf = bytearray()
 
@@ -183,7 +217,7 @@ class BasicConnection(LoggingMixin, asyncore.dispatcher):
             return
 
         try:
-            self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.create_socket(self.s_family, self.s_type)
             self.connect(self.addr)
         except socket.error as e:
             self.log('{ex!s}', ex=e)
@@ -197,8 +231,8 @@ class BasestationConnection(BasicConnection):
     heartbeat_interval = 30.0
     template = 'MSG,3,1,1,{addrtype}{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}'  # noqa
 
-    def __init__(self, listener, socket, addr):
-        super().__init__(listener, socket, addr)
+    def __init__(self, listener, socket, s_family, s_type, addr):
+        super().__init__(listener, socket, s_family, s_type, addr)
         self.next_heartbeat = monotonic_time() + self.heartbeat_interval
 
     @staticmethod
@@ -276,8 +310,8 @@ class BeastConnection(BasicConnection):
     def describe():
         return 'Beast-format results connection'
 
-    def __init__(self, listener, socket, addr):
-        super().__init__(listener, socket, addr)
+    def __init__(self, listener, socket, s_family, s_type, addr):
+        super().__init__(listener, socket, s_family, s_type, addr)
         self.writebuf = bytearray()
         self.last_write = monotonic_time()
 
