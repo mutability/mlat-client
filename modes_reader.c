@@ -22,7 +22,8 @@
 typedef enum {
     DECODER_NONE,                   /* Not configured */
     DECODER_BEAST,                  /* Beast binary, freerunning 48-bit timestamp @ 12MHz */
-    DECODER_RADARCAPE,              /* Beast binary, 1GHz Radarcape timestamp, UTC seconds + 1 */
+    DECODER_RADARCAPE,              /* Beast binary, 1GHz Radarcape timestamp, UTC synchronized from GPS */
+    DECODER_RADARCAPE_EMULATED,     /* Beast binary, 1GHz Radarcape timestamp, not synchronized */
     DECODER_AVR,                    /* AVR, no timestamp */
     DECODER_AVRMLAT,                /* AVR, freerunning 48-bit timestamp @ 12MHz */
     DECODER_SBS,                    /* Kinetic SBS, freerunning 20MHz 24-bit timestamp, wraps around all the time but we try to widen it */
@@ -44,6 +45,7 @@ typedef struct {
     const char *epoch;
 
     unsigned long long last_timestamp; /* last seen timestamp */
+    unsigned int radarcape_utc_bugfix;
 
     /* configurable bits */
     char allow_mode_change;
@@ -154,6 +156,7 @@ static struct {
 } modetable[] = {
     { DECODER_BEAST,                  "BEAST", NULL },
     { DECODER_RADARCAPE,              "RADARCAPE", NULL },
+    { DECODER_RADARCAPE_EMULATED,     "RADARCAPE_EMULATED", NULL },
     { DECODER_AVR,                    "AVR", NULL },
     { DECODER_AVRMLAT,                "AVRMLAT", NULL },
     { DECODER_SBS,                    "SBS", NULL },
@@ -165,7 +168,7 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buf, int max_messages)
 static PyObject *feed_avr(modesreader *self, Py_buffer *buf, int max_messages);
 static PyObject *feed_sbs(modesreader *self, Py_buffer *buf, int max_messages);
 static void set_decoder_mode(modesreader *self, decoder_mode newmode);
-static PyObject *radarcape_settings_to_list(int settings);
+static PyObject *radarcape_settings_to_list(uint8_t settings);
 static PyObject *radarcape_status_to_dict(uint8_t *message);
 static int filter_message(modesreader *self, PyObject *message);
 
@@ -343,6 +346,7 @@ static PyObject *modesreader_feed(modesreader *self, PyObject *args, PyObject *k
 
     case DECODER_BEAST:
     case DECODER_RADARCAPE:
+    case DECODER_RADARCAPE_EMULATED:
         rv = feed_beast(self, &buffer, max_messages);
         break;
 
@@ -376,7 +380,12 @@ static void set_decoder_mode(modesreader *self, decoder_mode newmode)
 
     case DECODER_RADARCAPE:
         self->frequency = 1000000000ULL;
-        self->epoch = "utc_midnight";  /* assumed */
+        self->epoch = "utc_midnight";
+        break;
+
+    case DECODER_RADARCAPE_EMULATED:
+        self->frequency = 1000000000ULL;
+        self->epoch = NULL;
         break;
 
     case DECODER_AVRMLAT:
@@ -398,7 +407,7 @@ static void set_decoder_mode(modesreader *self, decoder_mode newmode)
 }
 
 /* turn a radarcape DIP switch setting byte into a Python list of settings strings */
-static PyObject *radarcape_settings_to_list(int settings)
+static PyObject *radarcape_settings_to_list(uint8_t settings)
 {
     return Py_BuildValue("[s,s,s,s,s,s,s]",
                          settings & 0x01 ? "beast" : (settings & 0x04 ? "avrmlat" : "avr"),
@@ -410,12 +419,33 @@ static PyObject *radarcape_settings_to_list(int settings)
                          settings & 0x80 ? "modeac" : "no_modeac");
 }
 
+/* turn a radarcape GPS status byte into a Python dict */
+static PyObject *radarcape_gpsstatus_to_dict(uint8_t status)
+{
+    if (!(status & 0x80)) {
+        return Py_BuildValue("{s:O,s:O}",
+                             "utc_bugfix", Py_False,
+                             "timestamp_ok", Py_True
+                             );
+    }
+
+    return Py_BuildValue("{s:O,s:O,s:O,s:O,s:O,s:O,s:O}",
+                         "utc_bugfix",    Py_True,
+                         "timestamp_ok",  (status & 0x20 ? Py_False : Py_True),
+                         "sync_ok",       (status & 0x10 ? Py_True : Py_False),
+                         "utc_offset_ok", (status & 0x08 ? Py_True : Py_False),
+                         "sats_ok",       (status & 0x04 ? Py_True : Py_False),
+                         "tracking_ok",   (status & 0x02 ? Py_True : Py_False),
+                         "antenna_ok",    (status & 0x01 ? Py_True : Py_False));
+}
+
 /* turn a radarcape 0x34 status message into a Python dict */
 static PyObject *radarcape_status_to_dict(uint8_t *message)
 {
-    return Py_BuildValue("{s:N,s:i}",
+    return Py_BuildValue("{s:N,s:i,s:N}",
                          "settings", radarcape_settings_to_list(message[0]),
-                         "timestamp_pps_delta", (int)(int8_t)message[1]);
+                         "timestamp_pps_delta", (int)(int8_t)message[1],
+                         "gps_status", radarcape_gpsstatus_to_dict(message[2]));
 }
 
 /* create an event message for a timestamp jump */
@@ -502,7 +532,8 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
         return;
     }
 
-    if (self->decoder_mode == DECODER_RADARCAPE && timestamp >= (86340 * 1000000000ULL) && self->last_timestamp <= (60 * 1000000000ULL)) {
+    if ((self->decoder_mode == DECODER_RADARCAPE || self->decoder_mode == DECODER_RADARCAPE_EMULATED) &&
+        timestamp >= (86340 * 1000000000ULL) && self->last_timestamp <= (60 * 1000000000ULL)) {
         /* in radarcape mode, don't allow last_timestamp to roll back to the previous day
          * as we will have already issued an epoch reset
          */
@@ -623,11 +654,17 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
         if (type == '4') {
             /* radarcape-style status message, use this to switch our decoder type */
 
+            self->radarcape_utc_bugfix = (data[2] & 0x80) == 0x80;
+
             if (self->allow_mode_change) {
                 decoder_mode newmode;
                 if (data[0] & 0x10) {
                     /* radarcape in GPS timestamp mode */
-                    newmode = DECODER_RADARCAPE;
+                    if ((data[2] & 0x20) == 0x20) {
+                        newmode = DECODER_RADARCAPE_EMULATED;
+                    } else {
+                        newmode = DECODER_RADARCAPE;
+                    }
                 } else {
                     /* radarcape in 12MHz timestamp mode */
                     newmode = DECODER_BEAST;
@@ -665,8 +702,10 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             uint64_t nanos = timestamp & 0x00003FFFFFFF;
             uint64_t secs = timestamp >> 30;
 
-            /* fix up the timestamp so it is UTC, not 1 second ahead */
-            --secs;
+            if (!self->radarcape_utc_bugfix) {
+                /* fix up the timestamp so it is UTC, not 1 second ahead */
+                --secs;
+            }
 
             timestamp = nanos + secs * 1000000000;
 
