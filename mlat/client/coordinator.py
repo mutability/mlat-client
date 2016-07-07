@@ -317,7 +317,7 @@ class Coordinator:
             return False  # not a known ICAO
 
         ac.messages += 1
-        ac.last_message_time = monotonic_time()
+        ac.last_message_time = now
 
         if ac.messages < 10:
             return   # wait for more messages
