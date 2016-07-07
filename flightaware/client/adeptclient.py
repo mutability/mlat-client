@@ -289,7 +289,7 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         return False
 
     def writable(self):
-        return bool(self.writebuf)
+        return len(self.writebuf) > 0
 
     def handle_write(self):
         if self.writebuf:
