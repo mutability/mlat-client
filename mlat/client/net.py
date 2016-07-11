@@ -65,7 +65,11 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         self.reconnect()
 
     def close(self, manual_close=False):
-        asyncore.dispatcher.close(self)
+        try:
+            asyncore.dispatcher.close(self)
+        except AttributeError as e:
+            # blarg, try to eat asyncore bugs
+            pass
 
         if self.state != 'disconnected':
             if not manual_close:

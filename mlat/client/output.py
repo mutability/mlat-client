@@ -204,7 +204,12 @@ class BasicConnection(LoggingMixin, asyncore.dispatcher):
         self.close()
 
     def close(self):
-        super().close()
+        try:
+            super().close()
+        except AttributeError as e:
+            # blarg, try to eat asyncore bugs
+            pass
+
         self.listener.connection_lost(self)
 
     def handle_error(self):
