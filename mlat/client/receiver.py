@@ -111,6 +111,11 @@ class ReceiverConnection(ReconnectingConnection):
         if self.reader.mode is not None:
             self.coordinator.input_received_messages((mode_change_event(self.reader),))
 
+        # if we are connected to something that is Beast-like (or autodetecting), send a beast settings message
+        if self.reader.mode in (None, _modes.BEAST, _modes.RADARCAPE, _modes.RADARCAPE_EMULATED):
+            settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1g\x1a1j'  # Binary format, no filters, CRC checks enabled, GPS timestamps, mode A/C disabled
+            self.send(settings_message)
+
     def lost_connection(self):
         self.coordinator.input_disconnected()
 
