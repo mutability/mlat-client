@@ -299,6 +299,7 @@ class Coordinator:
                                      frequency=message.eventdata['frequency'],
                                      epoch=message.eventdata['epoch'],
                                      mode=message.eventdata['mode'])
+        log("Input format changed to {mode}, {freq:.0f}MHz clock", mode=message.eventdata['mode'], freq=frequency=message.eventdata['frequency']/1e6);
 
     def received_epoch_rollover_event(self, message, now):
         # epoch rollover, reset clock
