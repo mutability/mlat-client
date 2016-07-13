@@ -113,7 +113,8 @@ class ReceiverConnection(ReconnectingConnection):
 
         # if we are connected to something that is Beast-like (or autodetecting), send a beast settings message
         if self.reader.mode in (None, _modes.BEAST, _modes.RADARCAPE, _modes.RADARCAPE_EMULATED):
-            settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1j'  # Binary format, no filters, CRC checks enabled, mode A/C disabled
+            # Binary format, no filters, CRC checks enabled, mode A/C disabled
+            settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1j'
             self.send(settings_message)
 
     def lost_connection(self):

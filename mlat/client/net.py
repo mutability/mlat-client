@@ -67,7 +67,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     def close(self, manual_close=False):
         try:
             asyncore.dispatcher.close(self)
-        except AttributeError as e:
+        except AttributeError:
             # blarg, try to eat asyncore bugs
             pass
 
@@ -130,7 +130,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
             a_family, a_type, a_proto, a_canonname, a_sockaddr = self.addrlist[0]
             del self.addrlist[0]
 
-            sock = self.create_socket(a_family, a_type)
+            self.create_socket(a_family, a_type)
             self.connect(a_sockaddr)
         except socket.error as e:
             log('Connection to {host}:{port} failed: {ex!s}', host=self.host, port=self.port, ex=e)

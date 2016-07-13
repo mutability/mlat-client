@@ -25,7 +25,8 @@ import errno
 
 from mlat.client.net import LoggingMixin
 from mlat.client.util import log, monotonic_time
-from mlat.client.synthetic_es import make_altitude_only_frame, make_position_frame_pair, make_velocity_frame, DF18, DF18ANON
+from mlat.client.synthetic_es import make_altitude_only_frame, \
+    make_position_frame_pair, make_velocity_frame, DF18, DF18ANON
 
 
 class OutputListener(LoggingMixin, asyncore.dispatcher):
@@ -40,7 +41,7 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
             # one address here)
             self.a_family = socket.AF_INET6
             self.create_socket(self.a_family, self.a_type)
-        except socket.error as e:
+        except socket.error:
             # maybe no v6 support?
             self.a_family = socket.AF_INET
             self.create_socket(self.a_family, self.a_type)
@@ -98,7 +99,10 @@ class OutputConnector:
         self.addrlist = []
 
     def log(self, fmt, *args, **kwargs):
-        log('{what} with {host}:{port}: ' + fmt, *args, what=self.describe(), host=self.addr[0], port=self.addr[1], **kwargs)
+        log('{what} with {host}:{port}: ' + fmt,
+            *args,
+            what=self.describe(), host=self.addr[0], port=self.addr[1],
+            **kwargs)
 
     def reconnect(self):
         if len(self.addrlist) == 0:
@@ -206,7 +210,7 @@ class BasicConnection(LoggingMixin, asyncore.dispatcher):
     def close(self):
         try:
             super().close()
-        except AttributeError as e:
+        except AttributeError:
             # blarg, try to eat asyncore bugs
             pass
 
