@@ -1,8 +1,19 @@
-mlat-client (0.2.5~dev) UNRELEASED; urgency=medium
+mlat-client (0.2.5) stable; urgency=medium
 
-  * In development.
+  * Overhaul of the extension module to allow much more filtering to happen
+    before messages are passed to the Python layer
+  * Autodetect input format where possible
+  * Generate results as DF18 TIS-B, not DF17
+  * Support generating DF18 "anonymous address" results
+  * Don't fail entirely if a result output listener can't be created
+  * IPv6 support
+  * Interpret Radarcape status messages and change clock mode based on GPS
+    status
+  * Send a settings message on Beast-format connections so that (if the
+    other end understands them) we get only the specific messages we care
+    about
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 21 Dec 2015 01:52:36 +0000
+ -- Oliver Jowett <oliver@mutability.co.uk>  Fri, 15 Jul 2016 13:13:03 +0100
 
 mlat-client (0.2.4) unstable; urgency=medium
 
