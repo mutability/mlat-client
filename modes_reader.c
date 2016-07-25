@@ -102,7 +102,7 @@ static PyGetSetDef modesreaderGetSet[] = {
 
 /* modesreader methods */
 static PyMethodDef modesreaderMethods[] = {
-    { "feed", (PyCFunction)modesreader_feed, METH_VARARGS, "Process and decode some data." },
+    { "feed", (PyCFunction)modesreader_feed, METH_VARARGS|METH_KEYWORDS, "Process and decode some data." },
     { NULL, NULL, 0, NULL }
 };
 
