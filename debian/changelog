@@ -1,3 +1,9 @@
+mlat-client (0.2.6~dev) UNRELEASED; urgency=medium
+
+  * In development
+
+ -- Oliver Jowett <oliver@travel>  Mon, 25 Jul 2016 15:44:14 +0100
+
 mlat-client (0.2.5) stable; urgency=medium
 
   * Overhaul of the extension module to allow much more filtering to happen
