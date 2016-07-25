@@ -64,7 +64,7 @@ class UdpServerConnection:
             raise IOError('unexpectedly got {0} results when resolving {1}'.format(len(addrlist), self.host))
         a_family, a_type, a_proto, a_canonname, a_sockaddr = addrlist[0]
         self.sock = socket.socket(a_family, a_type, a_proto)
-        self.sock.connect(a_sockaddr)
+        self.remote_address = a_sockaddr
 
     def prepare_header(self, timestamp):
         self.base_timestamp = timestamp
@@ -146,7 +146,7 @@ class UdpServerConnection:
             return
 
         try:
-            self.sock.send(memoryview(self.buf)[0:self.used])
+            self.sock.sendto(memoryview(self.buf)[0:self.used], self.remote_address)
         except socket.error:
             pass
 
