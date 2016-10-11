@@ -53,11 +53,12 @@ class Coordinator:
     position_expiry_age = 30.0
     expiry_age = 60.0
 
-    def __init__(self, receiver, server, outputs, freq):
+    def __init__(self, receiver, server, outputs, freq, allow_anon):
         self.receiver = receiver
         self.server = server
         self.outputs = outputs
         self.freq = freq
+        self.allow_anon = allow_anon
 
         self.aircraft = {}
         self.requested_traffic = set()
@@ -237,6 +238,10 @@ class Coordinator:
     def server_mlat_result(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
                            callsign, squawk, error_est, nstations, anon):
         global_stats.mlat_positions += 1
+
+        if anon and not self.allow_anon:
+            return
+
         for o in self.outputs:
             o.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
                             callsign, squawk, error_est, nstations, anon)

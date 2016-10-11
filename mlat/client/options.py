@@ -127,6 +127,12 @@ def make_results_group(parser):
 Protocol may be 'basestation', 'ext_basestation', or 'beast'. Can be specified multiple times.""",
                          action='append',
                          default=[])
+    results.add_argument("--no-anon-results",
+                         help="Do not generate results for anonymized aircraft",
+                         action='store_false',
+                         dest='anon_results',
+                         default=True)
+
     return results
 
 

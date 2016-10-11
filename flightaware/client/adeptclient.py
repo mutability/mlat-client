@@ -350,8 +350,9 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         self.send_message(type='mlat_rates',
                           rates=' '.join('{0:06X} {1:.2f}'.format(icao, rate) for icao, rate in report.items()))
 
-    def send_ready(self):
-        self.send_message(type='mlat_event', event='ready', mlat_client_version=version.CLIENT_VERSION, capabilities='anon')
+    def send_ready(self, allow_anon):
+        self.send_message(type='mlat_event', event='ready', mlat_client_version=version.CLIENT_VERSION,
+                          capabilities='anon' if allow_anon else '')
 
     def send_input_connected(self):
         self.send_message(type='mlat_event', event='connected')
@@ -380,12 +381,13 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
 class AdeptConnection:
     UDP_REPORT_INTERVAL = 60.0
 
-    def __init__(self, udp_transport=None):
+    def __init__(self, udp_transport=None, allow_anon=True):
         self.reader = None
         self.writer = None
         self.coordinator = None
         self.closed = False
         self.udp_transport = udp_transport
+        self.allow_anon = allow_anon
         self.state = 'init'
 
     def start(self, coordinator):
@@ -411,7 +413,7 @@ class AdeptConnection:
         self.send_input_disconnected = self.writer.send_input_disconnected
 
         self.state = 'connected'
-        self.writer.send_ready()
+        self.writer.send_ready(allow_anon=self.allow_anon)
         self.next_udp_report = util.monotonic_time() + self.UDP_REPORT_INTERVAL
         self.coordinator.server_connected()
 

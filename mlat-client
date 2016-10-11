@@ -92,7 +92,8 @@ location pin from the coverage maps.""",
                                   offer_udp=args.udp,
                                   return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args))
+    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
+                              allow_anon=options.allow_anon_results)
 
     server.start()
     coordinator.run_forever()
