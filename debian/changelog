@@ -1,3 +1,9 @@
+mlat-client (0.2.7~dev) UNRELEASED; urgency=medium
+
+  * In development
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 11 Oct 2016 12:36:55 +0100
+
 mlat-client (0.2.6) stable; urgency=medium
 
   * Fix missing METH_KEYWORDS that would cause a crash on amd64
