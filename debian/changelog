@@ -1,8 +1,8 @@
-mlat-client (0.2.7~dev) UNRELEASED; urgency=medium
+mlat-client (0.2.7) stable; urgency=medium
 
-  * In development
+  * Add --no-anon-results option
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 11 Oct 2016 12:36:55 +0100
+ -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 25 Oct 2016 23:42:40 +0100
 
 mlat-client (0.2.6) stable; urgency=medium
 
