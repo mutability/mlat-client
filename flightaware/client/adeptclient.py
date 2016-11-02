@@ -337,8 +337,11 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
                           rates=' '.join('{0:06X} {1:.2f}'.format(icao, rate) for icao, rate in report.items()))
 
     def send_ready(self, allow_anon):
+        capabilities = ['modeac']
+        if allow_anon:
+            capabilities.append('anon')
         self.send_message(type='mlat_event', event='ready', mlat_client_version=version.CLIENT_VERSION,
-                          capabilities='anon' if allow_anon else '')
+                          capabilities=' '.join(capabilities))
 
     def send_input_connected(self):
         self.send_message(type='mlat_event', event='connected')
