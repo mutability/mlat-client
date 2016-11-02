@@ -27,6 +27,7 @@ TYPE_MLAT_LONG = 3
 #TYPE_SSYNC = 4
 TYPE_REBASE = 5
 TYPE_ABS_SYNC = 6
+TYPE_MLAT_MODEAC = 7
 
 STRUCT_HEADER = struct.Struct(">IHQ")
 STRUCT_SYNC = struct.Struct(">B3Bii14s14s")
@@ -35,6 +36,7 @@ STRUCT_MLAT_SHORT = struct.Struct(">B3Bi7s")
 STRUCT_MLAT_LONG = struct.Struct(">B3Bi14s")
 STRUCT_REBASE = struct.Struct(">BQ")
 STRUCT_ABS_SYNC = struct.Struct(">B3BQQ14s14s")
+STRUCT_MLAT_MODEAC = struct.Struct(">Bi2s")
 
 
 class UdpServerConnection:
@@ -88,7 +90,12 @@ class UdpServerConnection:
             self.rebase(message.timestamp)
             delta = 0
 
-        if len(message) == 7:
+        if len(message) == 2:
+            STRUCT_MLAT_MODEAC.pack_into(self.buf, self.used,
+                                         TYPE_MLAT_MODEAC,
+                                         delta, bytes(message))
+            self.used += STRUCT_MLAT_MODEAC.size
+        elif len(message) == 7:
             STRUCT_MLAT_SHORT.pack_into(self.buf, self.used,
                                         TYPE_MLAT_SHORT,
                                         message.address >> 16,
@@ -97,7 +104,7 @@ class UdpServerConnection:
                                         delta, bytes(message))
             self.used += STRUCT_MLAT_SHORT.size
 
-        else:
+        elif len(message) == 14:
             STRUCT_MLAT_LONG.pack_into(self.buf, self.used,
                                        TYPE_MLAT_LONG,
                                        message.address >> 16,
