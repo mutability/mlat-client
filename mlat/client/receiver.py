@@ -166,8 +166,8 @@ class ReceiverConnection(ReconnectingConnection):
         for the given Mode A codes"""
 
         changed = (self.modeac_filter and not wanted_modeac) or (not self.modeac_filter and wanted_modeac)
-        self.modeac_filter.clear();
-        self.modeac_filter.update(wanted_modeac);
+        self.modeac_filter.clear()
+        self.modeac_filter.update(wanted_modeac)
         if changed:
             self.send_settings_message()
 
