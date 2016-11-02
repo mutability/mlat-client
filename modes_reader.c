@@ -51,7 +51,6 @@ typedef struct {
     char allow_mode_change;
     char want_zero_timestamps;
     char want_mlat_messages;
-    char want_modeac_messages;
     char want_invalid_messages;
     char want_events;
 
@@ -59,6 +58,7 @@ typedef struct {
     PyObject *seen;
     PyObject *default_filter;
     PyObject *specific_filter;
+    PyObject *modeac_filter;
 
     /* stats */
     unsigned int received_messages;
@@ -83,12 +83,12 @@ static PyMemberDef modesreaderMembers[] = {
     { "allow_mode_change",     T_BOOL,      offsetof(modesreader, allow_mode_change),     0,         "can the decoder change mode based on status messages it receives?" },
     { "want_zero_timestamps",  T_BOOL,      offsetof(modesreader, want_zero_timestamps),  0,         "should the decoder return messages with zero timestamps?" },
     { "want_mlat_messages",    T_BOOL,      offsetof(modesreader, want_mlat_messages),    0,         "should the decoder return synthetic mlat messages?" },
-    { "want_modeac_messages",  T_BOOL,      offsetof(modesreader, want_modeac_messages),  0,         "should the decoder return Mode A/C messages?" },
     { "want_invalid_messages", T_BOOL,      offsetof(modesreader, want_invalid_messages), 0,         "should the decoder return invalid messages?" },
     { "want_events",           T_BOOL,      offsetof(modesreader, want_events),           0,         "should the decoder return metadata events?" },
     { "seen",                  T_OBJECT,    offsetof(modesreader, seen),                  0,         "set of addresses seen by the decoder" },
     { "default_filter",        T_OBJECT,    offsetof(modesreader, default_filter),        0,         "DF accept filter for all aircraft"},
     { "specific_filter",       T_OBJECT,    offsetof(modesreader, specific_filter),       0,         "DF accept filter for specific aircraft"},
+    { "modeac_filter",         T_OBJECT,    offsetof(modesreader, modeac_filter),         0,         "Mode A/C accept filter"},
     { "received_messages",     T_UINT,      offsetof(modesreader, received_messages),     0,         "total number of messages decoded"},
     { "suppressed_messages",   T_UINT,      offsetof(modesreader, suppressed_messages),   0,         "number of messages suppressed by filtering"},
     { NULL, 0, 0, 0, NULL }
@@ -232,10 +232,14 @@ static PyObject *modesreader_new(PyTypeObject *type, PyObject *args, PyObject *k
     self->allow_mode_change = 1;
     self->want_zero_timestamps = 0;
     self->want_mlat_messages = 0;
-    self->want_modeac_messages = 0;
     self->want_invalid_messages = 0;
     self->want_events = 1;
-    self->seen = self->default_filter = self->specific_filter = NULL;
+
+    Py_INCREF(Py_None); self->seen = Py_None;
+    Py_INCREF(Py_None); self->default_filter = Py_None;
+    Py_INCREF(Py_None); self->specific_filter = Py_None;
+    Py_INCREF(Py_None); self->modeac_filter = Py_None;
+
     self->received_messages = self->suppressed_messages = 0;
 
     return (PyObject *)self;
@@ -246,6 +250,7 @@ static void modesreader_dealloc(modesreader *self)
     Py_CLEAR(self->seen);
     Py_CLEAR(self->default_filter);
     Py_CLEAR(self->specific_filter);
+    Py_CLEAR(self->modeac_filter);
 
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -1292,7 +1297,11 @@ static int filter_message(modesreader *self, PyObject *o)
     modesmessage *message = (modesmessage *)o;
 
     if (message->df == DF_MODEAC) {
-        return self->want_modeac_messages;  /* no address in mode a/c, no further filtering possible */
+        if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
+            return PySequence_Contains(self->modeac_filter, message->address);
+        }
+
+        return 1;
     }
 
     if (!message->valid) {
