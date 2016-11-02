@@ -240,19 +240,24 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
         if handler:
             handler(message)
 
+    def parse_hexid_list(self, s):
+        icao = set()
+        modeac = set()
+        if s != '':
+            for x in s.split(' '):
+                if x[0] == '@':
+                    modeac.add(int(x[1:], 16))
+                else:
+                    icao.add(int(x, 16))
+        return icao, modeac
+
     def process_wanted_message(self, message):
-        if message['hexids'] == '':
-            wanted = set()
-        else:
-            wanted = {int(x, 16) for x in message['hexids'].split(' ')}
-        self.coordinator.server_start_sending(wanted)
+        wanted_icao, wanted_modeac = self.parse_hexid_list(message['hexids'])
+        self.coordinator.server_start_sending(wanted_icao, wanted_modeac)
 
     def process_unwanted_message(self, message):
-        if message['hexids'] == '':
-            unwanted = set()
-        else:
-            unwanted = {int(x, 16) for x in message['hexids'].split(' ')}
-        self.coordinator.server_stop_sending(unwanted)
+        unwanted_icao, unwanted_modeac = self.parse_hexid_list(message['hexids'])
+        self.coordinator.server_stop_sending(unwanted_icao, unwanted_modeac)
 
     def process_result_message(self, message):
         self.coordinator.server_mlat_result(timestamp=None,
