@@ -312,32 +312,6 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         line = '\t'.join(itertools.chain.from_iterable(kwargs.items())) + '\n'
         self.writebuf += line.encode('ascii')
 
-    # mlat/sync directly format the message rather than using
-    # send_message, as these on the hot path.
-
-    def send_mlat(self, message):
-        if message.df <= 15:  # DF 0..15 are 56-bit messages
-            line = 'type\tmlat_mlat\thexid\t{a:06X}\tm_short\t{t:012x} {m}\n'.format(
-                a=message.address,
-                t=message.timestamp,
-                m=str(message))
-        else:  # DF 16..31 are 112-bit messages
-            line = 'type\tmlat_mlat\thexid\t{a:06X}\tm_long\t{t:012x} {m}\n'.format(
-                a=message.address,
-                t=message.timestamp,
-                m=str(message))
-
-        self.writebuf += line.encode('ascii')
-
-    def send_sync(self, em, om):
-        line = 'type\tmlat_sync\thexid\t{a:06X}\tm_sync\t{et:012x} {em} {ot:012x} {om}\n'.format(
-            a=em.address,
-            et=em.timestamp,
-            em=str(em),
-            ot=om.timestamp,
-            om=str(om))
-        self.writebuf += line.encode('ascii')
-
     def send_seen(self, aclist):
         self.send_message(type='mlat_seen',
                           hexids=' '.join('{0:06X}'.format(icao) for icao in aclist))
@@ -382,6 +356,9 @@ class AdeptConnection:
     UDP_REPORT_INTERVAL = 60.0
 
     def __init__(self, udp_transport=None, allow_anon=True):
+        if udp_transport is None:
+            raise NotImplementedError('non-UDP transport not supported')
+
         self.reader = None
         self.writer = None
         self.coordinator = None
@@ -396,14 +373,9 @@ class AdeptConnection:
         self.reader = AdeptReader(self, coordinator)
         self.writer = AdeptWriter(self)
 
-        if self.udp_transport:
-            self.udp_transport.start()
-            self.send_mlat = self.udp_transport.send_mlat
-            self.send_sync = self.udp_transport.send_sync
-        else:
-            self.send_mlat = self.writer.send_mlat
-            self.send_sync = self.writer.send_sync
-
+        self.udp_transport.start()
+        self.send_mlat = self.udp_transport.send_mlat
+        self.send_sync = self.udp_transport.send_sync
         self.send_split_sync = None
         self.send_seen = self.writer.send_seen
         self.send_lost = self.writer.send_lost
