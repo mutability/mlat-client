@@ -380,7 +380,7 @@ static int decode(modesmessage *self)
 
     if (self->datalen == 2) {
         self->df = DF_MODEAC;
-        self->address = PyLong_FromLong((self->data[0] << 16) | self->data[1]);
+        self->address = PyLong_FromLong((self->data[0] << 8) | self->data[1]);
         self->valid = 1;
         return 0;
     }
