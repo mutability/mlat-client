@@ -67,6 +67,7 @@ class Coordinator:
             _modes.DF_EVENT_MODE_CHANGE: self.received_mode_change_event,
             _modes.DF_EVENT_EPOCH_ROLLOVER: self.received_epoch_rollover_event,
             _modes.DF_EVENT_TIMESTAMP_JUMP: self.received_timestamp_jump_event,
+            _modes.DF_EVENT_RADARCAPE_POSITION: self.received_radarcape_position_event,
             0: self.received_df_misc,
             4: self.received_df_misc,
             5: self.received_df_misc,
@@ -318,6 +319,12 @@ class Coordinator:
             log("Warning: the timestamps provided by your receiver do not seem to be self-consistent. "
                 "This can happen if you feed data from multiple receivers to a single mlat-client, which "
                 "is not supported; use a separate mlat-client for each receiver.")
+
+    def received_radarcape_position_event(self, message, now):
+        self.server.send_position_update(message.eventdata['lat'],
+                                         message.eventdata['lon'],
+                                         message.eventdata['alt'],
+                                         'egm96_meters')
 
     def received_df_misc(self, message, now):
         ac = self.aircraft.get(message.address)

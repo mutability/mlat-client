@@ -284,6 +284,7 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         self.connection = connection
         self.writebuf = bytearray()
         self.closed = False
+        self.last_position = None
 
     def readable(self):
         return False
@@ -374,6 +375,16 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
 
         self.send_message(**message)
 
+    def send_position_update(self, lat, lon, alt, altref):
+        new_pos = (lat, lon, alt, altref)
+        if self.last_position is None or self.last_position != new_pos:
+            self.send_message(type='mlat_location_update',
+                              lat='{0:.5f}'.format(lat),
+                              lon='{0:.5f}'.format(lon),
+                              alt='{0:.0f}'.format(alt),
+                              altref=altref)
+            self.last_position = new_pos
+
     def send_udp_report(self, count):
         self.send_message(type='mlat_udp_report', messages_sent=str(count))
 
@@ -411,6 +422,7 @@ class AdeptConnection:
         self.send_clock_reset = self.writer.send_clock_reset
         self.send_input_connected = self.writer.send_input_connected
         self.send_input_disconnected = self.writer.send_input_disconnected
+        self.send_position_update = self.writer.send_position_update
 
         self.state = 'connected'
         self.writer.send_ready(allow_anon=self.allow_anon)
