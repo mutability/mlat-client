@@ -52,6 +52,7 @@ typedef struct {
 #define DF_EVENT_MODE_CHANGE 34
 #define DF_EVENT_EPOCH_ROLLOVER 35
 #define DF_EVENT_RADARCAPE_STATUS 36
+#define DF_EVENT_RADARCAPE_POSITION 37
 
 /* factory function to build a modesmessage from a provided buffer */
 PyObject *modesmessage_from_buffer(unsigned long long timestamp, unsigned signal, uint8_t *data, int datalen);

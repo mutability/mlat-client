@@ -492,6 +492,38 @@ static PyObject *make_radarcape_status_event(modesreader *self, unsigned long lo
     return modesmessage_new_eventmessage(DF_EVENT_RADARCAPE_STATUS, timestamp, eventdata);
 }
 
+/* create an event message for a radarcape position report */
+static PyObject *radarcape_position_to_dict(uint8_t *data)
+{
+    float lat, lon, alt;
+
+    lat = _PyFloat_Unpack4(data + 4, 1);
+    if (lat == -1.0 && PyErr_Occurred())
+        return NULL;
+
+    lon = _PyFloat_Unpack4(data + 8, 1);
+    if (lon == -1.0 && PyErr_Occurred())
+        return NULL;
+
+    alt = _PyFloat_Unpack4(data + 12, 1);
+    if (alt == -1.0 && PyErr_Occurred())
+        return NULL;
+
+    return Py_BuildValue("{s:f,s:f,s:f}",
+                         "lat", lat,
+                         "lon", lon,
+                         "alt", alt);
+}
+
+static PyObject *make_radarcape_position_event(modesreader *self, uint8_t *data)
+{
+    PyObject *eventdata = radarcape_position_to_dict(data);
+    if (eventdata == NULL)
+        return NULL;
+
+    return modesmessage_new_eventmessage(DF_EVENT_RADARCAPE_POSITION, 0, eventdata);
+}
+
 /* check if the given timestamp is in range (not a jump), return 1 if it is */
 static int timestamp_check(modesreader *self, unsigned long long timestamp)
 {
@@ -581,6 +613,7 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
         uint8_t type;
         PyObject *message;
         int wanted;
+        int has_timestamp_signal;
 
         if (p[0] != 0x1a) {
             error_pending = 1;
@@ -590,12 +623,18 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             goto out;
         }
 
+        has_timestamp_signal = 1;
         type = p[1];
         switch (type) {
         case '1': message_len = 2; break; /* mode A/C */
         case '2': message_len = 7; break; /* mode S short */
         case '3': message_len = 14; break; /* mode S long */
         case '4': message_len = 14; break; /* radarcape status message */
+        case '5':
+            /* radarcape position message, no timestamp/signal bytes */
+            message_len = 21;
+            has_timestamp_signal = 0;
+            break;
         default:
             error_pending = 1;
             if (message_count > 0)
@@ -605,7 +644,7 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
         }
 
         m = p + 2;
-        eom = m + 7 + message_len;
+        eom = m + message_len + (has_timestamp_signal ? 7 : 0);
         if (eom > eod)
             break;
 
@@ -625,23 +664,28 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             }                                                           \
         } while(0)
 
-        /* timestamp, 6 bytes */
-        timestamp = *m;
-        ADVANCE;
-        timestamp = (timestamp << 8) | *m;
-        ADVANCE;
-        timestamp = (timestamp << 8) | *m;
-        ADVANCE;
-        timestamp = (timestamp << 8) | *m;
-        ADVANCE;
-        timestamp = (timestamp << 8) | *m;
-        ADVANCE;
-        timestamp = (timestamp << 8) | *m;
-        ADVANCE;
+        if (has_timestamp_signal) {
+            /* timestamp, 6 bytes */
+            timestamp = *m;
+            ADVANCE;
+            timestamp = (timestamp << 8) | *m;
+            ADVANCE;
+            timestamp = (timestamp << 8) | *m;
+            ADVANCE;
+            timestamp = (timestamp << 8) | *m;
+            ADVANCE;
+            timestamp = (timestamp << 8) | *m;
+            ADVANCE;
+            timestamp = (timestamp << 8) | *m;
+            ADVANCE;
 
-        /* signal, 1 byte */
-        signal = *m;
-        ADVANCE;
+            /* signal, 1 byte */
+            signal = *m;
+            ADVANCE;
+        } else {
+            timestamp = 0;
+            signal = 0;
+        }
 
         /* message, N bytes */
         for (i = 0; i < message_len; ++i) {
@@ -681,71 +725,86 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             }
         }
 
-        if (self->decoder_mode == DECODER_BEAST) {
-            /* 12MHz mode */
+        if (has_timestamp_signal) {
+            if (self->decoder_mode == DECODER_BEAST) {
+                /* 12MHz mode */
 
-            /* check for very out of range value
-             * (dump1090 can hold messages for up to 60 seconds! so be conservative here)
-             * also work around dump1090-mutability issue #47 which can send very stale Mode A/C messages
-             */
-            if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
-                if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
-                    goto out;
-            }
-        } else {
-            /* gps mode */
+                /* check for very out of range value
+                 * (dump1090 can hold messages for up to 60 seconds! so be conservative here)
+                 * also work around dump1090-mutability issue #47 which can send very stale Mode A/C messages
+                 */
+                if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
+                    if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
+                        goto out;
+                }
+            } else {
+                /* gps mode */
 
-            /* adjust timestamp so that it is a contiguous nanoseconds-since-
-             * midnight value, rather than the raw form which skips values once
-             * a second
-             */
-            uint64_t nanos = timestamp & 0x00003FFFFFFF;
-            uint64_t secs = timestamp >> 30;
+                /* adjust timestamp so that it is a contiguous nanoseconds-since-
+                 * midnight value, rather than the raw form which skips values once
+                 * a second
+                 */
+                uint64_t nanos = timestamp & 0x00003FFFFFFF;
+                uint64_t secs = timestamp >> 30;
 
-            if (!self->radarcape_utc_bugfix) {
-                /* fix up the timestamp so it is UTC, not 1 second ahead */
-                --secs;
-            }
+                if (!self->radarcape_utc_bugfix) {
+                    /* fix up the timestamp so it is UTC, not 1 second ahead */
+                    --secs;
+                }
 
-            timestamp = nanos + secs * 1000000000;
+                timestamp = nanos + secs * 1000000000;
 
-            /* adjust for the timestamp being at the _end_ of the frame;
-             * we don't really care about getting a particular starting point
-             * (that's just a fixed offset), so long as it is _the same in
-             * every frame_.
-             *
-             * (but don't do this for status messages as they have a timestamp
-             * as at the start of the message, which is basically the time of
-             * the PPS)
-             */
-            if (type != '4') {
-                uint64_t adjust = (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
-                if (adjust <= timestamp) {
-                    timestamp = timestamp - adjust;
-                } else {
-                    /* wrap it to the previous day */
-                    timestamp = timestamp + 86400 * 1000000000ULL - adjust;
+                /* adjust for the timestamp being at the _end_ of the frame;
+                 * we don't really care about getting a particular starting point
+                 * (that's just a fixed offset), so long as it is _the same in
+                 * every frame_.
+                 *
+                 * (but don't do this for status messages as they have a timestamp
+                 * as at the start of the message, which is basically the time of
+                 * the PPS)
+                 */
+                if (type != '4') {
+                    uint64_t adjust = (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
+                    if (adjust <= timestamp) {
+                        timestamp = timestamp - adjust;
+                    } else {
+                        /* wrap it to the previous day */
+                        timestamp = timestamp + 86400 * 1000000000ULL - adjust;
+                    }
+                }
+
+                /* check for end of day rollover */
+                if (self->want_events && self->last_timestamp >= (86340 * 1000000000ULL) && timestamp <= (60 * 1000000000ULL)) {
+                    if (! (messages[message_count++] = make_epoch_rollover_event(self, timestamp)))
+                        goto out;
+                } else if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
+                    if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
+                        goto out;
                 }
             }
 
-            /* check for end of day rollover */
-            if (self->want_events && self->last_timestamp >= (86340 * 1000000000ULL) && timestamp <= (60 * 1000000000ULL)) {
-                if (! (messages[message_count++] = make_epoch_rollover_event(self, timestamp)))
-                    goto out;
-            } else if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
-                if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
-                    goto out;
+            if (type != '1') {
+                timestamp_update(self, timestamp);
             }
-        }
-
-        if (type != '1') {
-            timestamp_update(self, timestamp);
         }
 
         if (type == '4') {
             /* radarcape-style status message, emit the status event if wanted */
             if (self->want_events) {
                 if (! (messages[message_count++] = make_radarcape_status_event(self, timestamp, data)))
+                    goto out;
+            }
+
+            /* don't try to process this as a Mode S message */
+            p = m;
+            continue;
+        }
+
+        if (type == '5') {
+            /* radarcape-style position message, emit the position event if wanted */
+
+            if (self->want_events) {
+                if (! (messages[message_count++] = make_radarcape_position_event(self, data)))
                     goto out;
             }
 

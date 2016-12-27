@@ -142,6 +142,9 @@ int modesmessage_module_init(PyObject *m)
     if (PyModule_AddIntMacro(m, DF_EVENT_RADARCAPE_STATUS) < 0)
         return -1;
 
+    if (PyModule_AddIntMacro(m, DF_EVENT_RADARCAPE_POSITION) < 0)
+        return -1;
+
     return 0;
 }
 
