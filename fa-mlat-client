@@ -43,7 +43,7 @@ def main():
     outputs = options.build_outputs(args)
 
     coordinator = Coordinator(receiver=receiver, server=adept, outputs=outputs, freq=options.clock_frequency(args),
-                              allow_anon=args.allow_anon_results)
+                              allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
     adept.start(coordinator)
     coordinator.run_until(lambda: adept.closed)
 

@@ -132,6 +132,11 @@ Protocol may be 'basestation', 'ext_basestation', or 'beast'. Can be specified m
                          action='store_false',
                          dest='allow_anon_results',
                          default=True)
+    results.add_argument("--no-modeac-results",
+                         help="Do not generate results for Mode A/C tracks",
+                         action='store_false',
+                         dest='allow_modeac_results',
+                         default=True)
 
     return results
 

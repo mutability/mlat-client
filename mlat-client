@@ -93,7 +93,7 @@ location pin from the coverage maps.""",
                                   return_results=(len(outputs) > 0))
 
     coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
-                              allow_anon=args.allow_anon_results)
+                              allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
 
     server.start()
     coordinator.run_forever()

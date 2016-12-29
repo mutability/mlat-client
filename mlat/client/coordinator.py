@@ -53,12 +53,13 @@ class Coordinator:
     position_expiry_age = 30.0
     expiry_age = 60.0
 
-    def __init__(self, receiver, server, outputs, freq, allow_anon):
+    def __init__(self, receiver, server, outputs, freq, allow_anon, allow_modeac):
         self.receiver = receiver
         self.server = server
         self.outputs = outputs
         self.freq = freq
         self.allow_anon = allow_anon
+        self.allow_modeac = allow_modeac
 
         self.aircraft = {}
         self.requested_traffic = set()
@@ -239,15 +240,18 @@ class Coordinator:
         self.next_expiry = None
 
     def server_mlat_result(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                           callsign, squawk, error_est, nstations, anon):
+                           callsign, squawk, error_est, nstations, anon, modeac):
         global_stats.mlat_positions += 1
 
         if anon and not self.allow_anon:
             return
 
+        if modeac and not self.allow_modeac:
+            return
+
         for o in self.outputs:
             o.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                            callsign, squawk, error_est, nstations, anon)
+                            callsign, squawk, error_est, nstations, anon, modeac)
 
     def server_start_sending(self, icao_set, modeac_set=set()):
         for icao in icao_set:
@@ -255,7 +259,8 @@ class Coordinator:
             if ac:
                 ac.requested = True
         self.requested_traffic.update(icao_set)
-        self.requested_modeac.update(modeac_set)
+        if self.allow_modeac:
+            self.requested_modeac.update(modeac_set)
         self.update_receiver_filter()
 
     def server_stop_sending(self, icao_set, modeac_set=set()):
@@ -264,7 +269,8 @@ class Coordinator:
             if ac:
                 ac.requested = False
         self.requested_traffic.difference_update(icao_set)
-        self.requested_modeac.difference_update(modeac_set)
+        if self.allow_modeac:
+            self.requested_modeac.difference_update(modeac_set)
         self.update_receiver_filter()
 
     def update_receiver_filter(self):

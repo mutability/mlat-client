@@ -272,7 +272,8 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
                                             squawk=None,
                                             error_est=None,
                                             nstations=None,
-                                            anon=bool(message.get('anon', 0)))
+                                            anon=bool(message.get('anon', 0)),
+                                            modeac=bool(message.get('modeac', 0)))
 
     def process_status_message(self, message):
         s = message.get('status', 'unknown')
