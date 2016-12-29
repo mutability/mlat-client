@@ -30,6 +30,7 @@ __all__ = ('make_altitude_only_frame', 'make_position_frame_pair', 'make_velocit
 DF17 = 'DF17'
 DF18 = 'DF18'
 DF18ANON = 'DF18ANON'
+DF18TRACK = 'DF18TRACK'
 
 # lookup table for CPR_NL
 nl_table = (
@@ -212,19 +213,27 @@ def make_position_frame(metype, addr, elat, elon, ealt, oddflag, df):
         # DF=17, CA=6 (ES, Level 2 or above transponder and ability
         # to set CA code 7 and either airborne or on the ground)
         frame[0] = (17 << 3) | (6)
+        imf = 0
     elif df is DF18:
-        # DF=18, CF=2 (ES/NT, fine TIS-B message)
+        # DF=18, CF=2, IMF=0 (ES/NT, fine TIS-B message with 24-bit address)
         frame[0] = (18 << 3) | (2)
+        imf = 0
     elif df is DF18ANON:
-        # DF=18, CF=5 (ES/NT, TIS-B with anonymous 24-bit address)
+        # DF=18, CF=5, IMF=0 (ES/NT, fine TIS-B message with anonymous 24-bit address)
         frame[0] = (18 << 3) | (5)
+        imf = 0
+    elif df is DF18TRACK:
+        # DF=18, CF=2, IMF=1 (ES/NT, fine TIS-B message with track file number)
+        frame[0] = (18 << 3) | (2)
+        imf = 1
     else:
-        raise ValueError('df must be DF17 or DF18 or DF18ANON')
+        raise ValueError('df must be DF17 or DF18 or DF18ANON or DF18TRACK')
 
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA
     frame[3] = addr & 255            # AA
-    frame[4] = (metype << 3)         # ME type, status 0, SAF/IMF 0
+    frame[4] = (metype << 3)         # ME type, status 0
+    frame[4] |= imf                  # SAF (DF17) / IMF (DF 18)
     frame[5] = (ealt >> 4) & 255     # Altitude (MSB)
     frame[6] = (ealt & 15) << 4      # Altitude (LSB)
     if oddflag:
@@ -260,14 +269,21 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate, df=DF18):
         # DF=17, CA=6 (ES, Level 2 or above transponder and ability
         # to set CA code 7 and either airborne or on the ground)
         frame[0] = (17 << 3) | (6)
+        imf = 0
     elif df is DF18:
-        # DF=18, CF=2 (ES/NT, fine TIS-B message)
+        # DF=18, CF=2, IMF=0 (ES/NT, fine TIS-B message with 24-bit address)
         frame[0] = (18 << 3) | (2)
+        imf = 0
     elif df is DF18ANON:
-        # DF=18, CF=5 (ES/NT, TIS-B with anonymous 24-bit address)
+        # DF=18, CF=5, IMF=1 (ES/NT, fine TIS-B message with anonymous 24-bit address)
         frame[0] = (18 << 3) | (5)
+        imf = 0
+    elif df is DF18TRACK:
+        # DF=18, CF=2, IMF=1 (ES/NT, fine TIS-B message with track file number)
+        frame[0] = (18 << 3) | (2)
+        imf = 1
     else:
-        raise ValueError('df must be DF17 or DF18 or DF18ANON')
+        raise ValueError('df must be DF17 or DF18 or DF18ANON or DF18TRACK')
 
     frame[1] = (addr >> 16) & 255    # AA
     frame[2] = (addr >> 8) & 255     # AA
@@ -278,7 +294,8 @@ def make_velocity_frame(addr, nsvel, ewvel, vrate, df=DF18):
     else:
         frame[4] |= 1                # subtype 1, ground speed, subsonic
 
-    frame[5] = (e_ew >> 8) & 7       # intent change 0, IFR/IMF 0, NUCr 0, E/W velocity top bits
+    frame[5] = (imf << 7)            # IMF, NACp 0
+    frame[5] |= (e_ew >> 8) & 7      # E/W velocity sign and top bits
     frame[6] = (e_ew & 255)          # E/W velocity low bits
     frame[7] = (e_ns >> 3) & 255     # N/S velocity top bits
     frame[8] = (e_ns & 7) << 5       # N/S velocity low bits

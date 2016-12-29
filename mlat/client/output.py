@@ -26,7 +26,7 @@ import errno
 from mlat.client.net import LoggingMixin
 from mlat.client.util import log, monotonic_time
 from mlat.client.synthetic_es import make_altitude_only_frame, \
-    make_position_frame_pair, make_velocity_frame, DF18, DF18ANON
+    make_position_frame_pair, make_velocity_frame, DF18, DF18ANON, DF18TRACK
 
 
 class OutputListener(LoggingMixin, asyncore.dispatcher):
@@ -69,10 +69,10 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         self.output_channels.add(self.connection_factory(self, new_socket, self.a_type, self.a_family, address))
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations, anon):
+                      callsign, squawk, error_est, nstations, anon, modeac):
         for channel in list(self.output_channels):
             channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                                  callsign, squawk, error_est, nstations, anon)
+                                  callsign, squawk, error_est, nstations, anon, modeac)
 
     def heartbeat(self, now):
         for channel in list(self.output_channels):
@@ -126,10 +126,10 @@ class OutputConnector:
         self.output_channel.connect_now()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations, anon):
+                      callsign, squawk, error_est, nstations, anon, modeac):
         if self.output_channel:
             self.output_channel.send_position(timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                                              callsign, squawk, error_est, nstations, anon)
+                                              callsign, squawk, error_est, nstations, anon, modeac)
 
     def heartbeat(self, now):
         if self.output_channel:
@@ -257,7 +257,7 @@ class BasestationConnection(BasicConnection):
                 self.handle_error()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations, anon):
+                      callsign, squawk, error_est, nstations, anon, modeac):
         if not self.connected:
             return
 
@@ -274,7 +274,9 @@ class BasestationConnection(BasicConnection):
             speed = None
             heading = None
 
-        if anon:
+        if modeac:
+            addrtype = '@'
+        elif anon:
             addrtype = '~'
         else:
             addrtype = ''
@@ -351,11 +353,13 @@ class BeastConnection(BasicConnection):
         self.last_write = monotonic_time()
 
     def send_position(self, timestamp, addr, lat, lon, alt, nsvel, ewvel, vrate,
-                      callsign, squawk, error_est, nstations, anon):
+                      callsign, squawk, error_est, nstations, anon, modeac):
         if not self.connected:
             return
 
-        if anon:
+        if modeac:
+            df = DF18TRACK
+        elif anon:
             df = DF18ANON
         else:
             df = DF18

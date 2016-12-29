@@ -57,6 +57,8 @@ class ReceiverConnection(ReconnectingConnection):
         # and distinguish ADS-B from Mode-S-only aircraft
         self.default_filter[17] = True
 
+        self.modeac_filter = set()
+
         self.reset_connection()
 
     def detect(self, data):
@@ -100,6 +102,7 @@ class ReceiverConnection(ReconnectingConnection):
         self.reader.seen = set()
         self.reader.default_filter = self.default_filter
         self.reader.specific_filter = self.specific_filter
+        self.reader.modeac_filter = self.modeac_filter
 
     def start_connection(self):
         log('Input connected to {0}:{1}', self.host, self.port)
@@ -111,11 +114,24 @@ class ReceiverConnection(ReconnectingConnection):
         if self.reader.mode is not None:
             self.coordinator.input_received_messages((mode_change_event(self.reader),))
 
+        self.send_settings_message()
+
+    def send_settings_message(self):
         # if we are connected to something that is Beast-like (or autodetecting), send a beast settings message
-        if self.reader.mode in (None, _modes.BEAST, _modes.RADARCAPE, _modes.RADARCAPE_EMULATED):
+        if self.state != 'connected':
+            return
+
+        if self.reader.mode not in (None, _modes.BEAST, _modes.RADARCAPE, _modes.RADARCAPE_EMULATED):
+            return
+
+        if not self.modeac_filter:
             # Binary format, no filters, CRC checks enabled, mode A/C disabled
             settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1j'
-            self.send(settings_message)
+        else:
+            # Binary format, no filters, CRC checks enabled, mode A/C enabled
+            settings_message = b'\x1a1C\x1a1d\x1a1f\x1a1J'
+
+        self.send(settings_message)
 
     def lost_connection(self):
         self.coordinator.input_disconnected()
@@ -144,6 +160,16 @@ class ReceiverConnection(ReconnectingConnection):
         # place automatically updates all the DF-specific filters.
         self.interested_mlat.clear()
         self.interested_mlat.update(wanted_mlat)
+
+    def update_modeac_filter(self, wanted_modeac):
+        """Update the receiver filters so that we receive mode A/C messages
+        for the given Mode A codes"""
+
+        changed = (self.modeac_filter and not wanted_modeac) or (not self.modeac_filter and wanted_modeac)
+        self.modeac_filter.clear()
+        self.modeac_filter.update(wanted_modeac)
+        if changed:
+            self.send_settings_message()
 
     @mlat.profile.trackcpu
     def handle_read(self):

@@ -24,17 +24,19 @@ from mlat.client import net, util, stats, version
 TYPE_SYNC = 1
 TYPE_MLAT_SHORT = 2
 TYPE_MLAT_LONG = 3
-#TYPE_SSYNC = 4
+# TYPE_SSYNC = 4
 TYPE_REBASE = 5
 TYPE_ABS_SYNC = 6
+TYPE_MLAT_MODEAC = 7
 
 STRUCT_HEADER = struct.Struct(">IHQ")
 STRUCT_SYNC = struct.Struct(">B3Bii14s14s")
-#STRUCT_SSYNC = struct.Struct(">Bi14s")
+# STRUCT_SSYNC = struct.Struct(">Bi14s")
 STRUCT_MLAT_SHORT = struct.Struct(">B3Bi7s")
 STRUCT_MLAT_LONG = struct.Struct(">B3Bi14s")
 STRUCT_REBASE = struct.Struct(">BQ")
 STRUCT_ABS_SYNC = struct.Struct(">B3BQQ14s14s")
+STRUCT_MLAT_MODEAC = struct.Struct(">Bi2s")
 
 
 class UdpServerConnection:
@@ -88,7 +90,12 @@ class UdpServerConnection:
             self.rebase(message.timestamp)
             delta = 0
 
-        if len(message) == 7:
+        if len(message) == 2:
+            STRUCT_MLAT_MODEAC.pack_into(self.buf, self.used,
+                                         TYPE_MLAT_MODEAC,
+                                         delta, bytes(message))
+            self.used += STRUCT_MLAT_MODEAC.size
+        elif len(message) == 7:
             STRUCT_MLAT_SHORT.pack_into(self.buf, self.used,
                                         TYPE_MLAT_SHORT,
                                         message.address >> 16,
@@ -97,7 +104,7 @@ class UdpServerConnection:
                                         delta, bytes(message))
             self.used += STRUCT_MLAT_SHORT.size
 
-        else:
+        elif len(message) == 14:
             STRUCT_MLAT_LONG.pack_into(self.buf, self.used,
                                        TYPE_MLAT_LONG,
                                        message.address >> 16,
@@ -233,19 +240,24 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
         if handler:
             handler(message)
 
+    def parse_hexid_list(self, s):
+        icao = set()
+        modeac = set()
+        if s != '':
+            for x in s.split(' '):
+                if x[0] == '@':
+                    modeac.add(int(x[1:], 16))
+                else:
+                    icao.add(int(x, 16))
+        return icao, modeac
+
     def process_wanted_message(self, message):
-        if message['hexids'] == '':
-            wanted = set()
-        else:
-            wanted = {int(x, 16) for x in message['hexids'].split(' ')}
-        self.coordinator.server_start_sending(wanted)
+        wanted_icao, wanted_modeac = self.parse_hexid_list(message['hexids'])
+        self.coordinator.server_start_sending(wanted_icao, wanted_modeac)
 
     def process_unwanted_message(self, message):
-        if message['hexids'] == '':
-            unwanted = set()
-        else:
-            unwanted = {int(x, 16) for x in message['hexids'].split(' ')}
-        self.coordinator.server_stop_sending(unwanted)
+        unwanted_icao, unwanted_modeac = self.parse_hexid_list(message['hexids'])
+        self.coordinator.server_stop_sending(unwanted_icao, unwanted_modeac)
 
     def process_result_message(self, message):
         self.coordinator.server_mlat_result(timestamp=None,
@@ -260,7 +272,8 @@ class AdeptReader(asyncore.file_dispatcher, net.LoggingMixin):
                                             squawk=None,
                                             error_est=None,
                                             nstations=None,
-                                            anon=bool(message.get('anon', 0)))
+                                            anon=bool(message.get('anon', 0)),
+                                            modeac=bool(message.get('modeac', 0)))
 
     def process_status_message(self, message):
         s = message.get('status', 'unknown')
@@ -313,32 +326,6 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         line = '\t'.join(itertools.chain.from_iterable(kwargs.items())) + '\n'
         self.writebuf += line.encode('ascii')
 
-    # mlat/sync directly format the message rather than using
-    # send_message, as these on the hot path.
-
-    def send_mlat(self, message):
-        if message.df <= 15:  # DF 0..15 are 56-bit messages
-            line = 'type\tmlat_mlat\thexid\t{a:06X}\tm_short\t{t:012x} {m}\n'.format(
-                a=message.address,
-                t=message.timestamp,
-                m=str(message))
-        else:  # DF 16..31 are 112-bit messages
-            line = 'type\tmlat_mlat\thexid\t{a:06X}\tm_long\t{t:012x} {m}\n'.format(
-                a=message.address,
-                t=message.timestamp,
-                m=str(message))
-
-        self.writebuf += line.encode('ascii')
-
-    def send_sync(self, em, om):
-        line = 'type\tmlat_sync\thexid\t{a:06X}\tm_sync\t{et:012x} {em} {ot:012x} {om}\n'.format(
-            a=em.address,
-            et=em.timestamp,
-            em=str(em),
-            ot=om.timestamp,
-            om=str(om))
-        self.writebuf += line.encode('ascii')
-
     def send_seen(self, aclist):
         self.send_message(type='mlat_seen',
                           hexids=' '.join('{0:06X}'.format(icao) for icao in aclist))
@@ -352,8 +339,11 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
                           rates=' '.join('{0:06X} {1:.2f}'.format(icao, rate) for icao, rate in report.items()))
 
     def send_ready(self, allow_anon):
+        capabilities = ['modeac']
+        if allow_anon:
+            capabilities.append('anon')
         self.send_message(type='mlat_event', event='ready', mlat_client_version=version.CLIENT_VERSION,
-                          capabilities='anon' if allow_anon else '')
+                          capabilities=' '.join(capabilities))
 
     def send_input_connected(self):
         self.send_message(type='mlat_event', event='connected')
@@ -393,6 +383,9 @@ class AdeptConnection:
     UDP_REPORT_INTERVAL = 60.0
 
     def __init__(self, udp_transport=None, allow_anon=True):
+        if udp_transport is None:
+            raise NotImplementedError('non-UDP transport not supported')
+
         self.reader = None
         self.writer = None
         self.coordinator = None
@@ -407,14 +400,9 @@ class AdeptConnection:
         self.reader = AdeptReader(self, coordinator)
         self.writer = AdeptWriter(self)
 
-        if self.udp_transport:
-            self.udp_transport.start()
-            self.send_mlat = self.udp_transport.send_mlat
-            self.send_sync = self.udp_transport.send_sync
-        else:
-            self.send_mlat = self.writer.send_mlat
-            self.send_sync = self.writer.send_sync
-
+        self.udp_transport.start()
+        self.send_mlat = self.udp_transport.send_mlat
+        self.send_sync = self.udp_transport.send_sync
         self.send_split_sync = None
         self.send_seen = self.writer.send_seen
         self.send_lost = self.writer.send_lost

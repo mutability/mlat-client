@@ -381,8 +381,9 @@ static int decode(modesmessage *self)
     Py_CLEAR(self->address);
     Py_CLEAR(self->altitude);
 
-    if (self->datalen < 7) {
+    if (self->datalen == 2) {
         self->df = DF_MODEAC;
+        self->address = PyLong_FromLong((self->data[0] << 8) | self->data[1]);
         self->valid = 1;
         return 0;
     }
