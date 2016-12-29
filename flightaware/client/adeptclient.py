@@ -24,14 +24,14 @@ from mlat.client import net, util, stats, version
 TYPE_SYNC = 1
 TYPE_MLAT_SHORT = 2
 TYPE_MLAT_LONG = 3
-#TYPE_SSYNC = 4
+# TYPE_SSYNC = 4
 TYPE_REBASE = 5
 TYPE_ABS_SYNC = 6
 TYPE_MLAT_MODEAC = 7
 
 STRUCT_HEADER = struct.Struct(">IHQ")
 STRUCT_SYNC = struct.Struct(">B3Bii14s14s")
-#STRUCT_SSYNC = struct.Struct(">Bi14s")
+# STRUCT_SSYNC = struct.Struct(">Bi14s")
 STRUCT_MLAT_SHORT = struct.Struct(">B3Bi7s")
 STRUCT_MLAT_LONG = struct.Struct(">B3Bi14s")
 STRUCT_REBASE = struct.Struct(">BQ")
