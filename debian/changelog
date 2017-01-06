@@ -1,6 +1,8 @@
 mlat-client (0.2.8~dev) UNRELEASED; urgency=medium
 
-  * in development.
+  * Mode A/C support
+  * DF18 trackfile identifier support for Mode A/C results
+  * Radarcape position message support
 
  -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 27 Dec 2016 13:45:03 +0000
 
