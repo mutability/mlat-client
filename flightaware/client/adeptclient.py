@@ -338,10 +338,12 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
         self.send_message(type='mlat_rates',
                           rates=' '.join('{0:06X} {1:.2f}'.format(icao, rate) for icao, rate in report.items()))
 
-    def send_ready(self, allow_anon):
-        capabilities = ['modeac']
+    def send_ready(self, allow_anon, allow_modeac):
+        capabilities = []
         if allow_anon:
             capabilities.append('anon')
+        if allow_modeac:
+            capabilities.append('modeac')
         self.send_message(type='mlat_event', event='ready', mlat_client_version=version.CLIENT_VERSION,
                           capabilities=' '.join(capabilities))
 
@@ -382,7 +384,7 @@ class AdeptWriter(asyncore.file_dispatcher, net.LoggingMixin):
 class AdeptConnection:
     UDP_REPORT_INTERVAL = 60.0
 
-    def __init__(self, udp_transport=None, allow_anon=True):
+    def __init__(self, udp_transport=None, allow_anon=True, allow_modeac=True):
         if udp_transport is None:
             raise NotImplementedError('non-UDP transport not supported')
 
@@ -392,6 +394,7 @@ class AdeptConnection:
         self.closed = False
         self.udp_transport = udp_transport
         self.allow_anon = allow_anon
+        self.allow_modeac = allow_modeac
         self.state = 'init'
 
     def start(self, coordinator):
@@ -413,7 +416,7 @@ class AdeptConnection:
         self.send_position_update = self.writer.send_position_update
 
         self.state = 'connected'
-        self.writer.send_ready(allow_anon=self.allow_anon)
+        self.writer.send_ready(allow_anon=self.allow_anon, allow_modeac=self.allow_modeac)
         self.next_udp_report = util.monotonic_time() + self.UDP_REPORT_INTERVAL
         self.coordinator.server_connected()
 

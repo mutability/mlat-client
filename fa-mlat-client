@@ -39,7 +39,7 @@ def main():
     log("Using UDP transport to {host} port {port}", host=udp_host, port=udp_port)
 
     receiver = options.build_receiver_connection(args)
-    adept = AdeptConnection(udp_transport, args.allow_anon_results)
+    adept = AdeptConnection(udp_transport, allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
     outputs = options.build_outputs(args)
 
     coordinator = Coordinator(receiver=receiver, server=adept, outputs=outputs, freq=options.clock_frequency(args),
