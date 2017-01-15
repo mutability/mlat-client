@@ -742,6 +742,30 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
                     if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
                         goto out;
                 }
+
+                /* adjust the timestamps so they always reflect the start of the frame */
+                uint64_t adjust;
+                if (type == '1') {
+                    // Mode A/C, timestamp reported at F2 which is 20.3us after F1
+                    // this is 243.6 cycles at 12MHz
+                    adjust = 244;
+                } else if (type == '2') {
+                    // Mode S short, timestamp reported at end of frame, frame is 8us preamble plus 56us data
+                    // this is 768 cycles at 12MHz
+                    adjust = 768;
+                } else if (type == '3') {
+                    // Mode S long, timestamp reported halfway through the frame (at bit 56), same offset as Mode S short
+                    adjust = 768;
+                } else {
+                    // anything else we assume is already correct
+                    adjust = 0;
+                }
+
+                if (timestamp < adjust) {
+                    timestamp = 0;
+                } else {
+                    timestamp = timestamp - adjust;
+                }
             } else {
                 /* gps mode */
 
@@ -759,23 +783,27 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
 
                 timestamp = nanos + secs * 1000000000;
 
-                /* adjust for the timestamp being at the _end_ of the frame;
-                 * we don't really care about getting a particular starting point
-                 * (that's just a fixed offset), so long as it is _the same in
-                 * every frame_.
-                 *
-                 * (but don't do this for status messages as they have a timestamp
-                 * as at the start of the message, which is basically the time of
-                 * the PPS)
-                 */
-                if (type != '4') {
-                    uint64_t adjust = (8000 + message_len * 8000); /* each byte takes 8us to transmit, plus 8us preamble */
-                    if (adjust <= timestamp) {
-                        timestamp = timestamp - adjust;
-                    } else {
-                        /* wrap it to the previous day */
-                        timestamp = timestamp + 86400 * 1000000000ULL - adjust;
-                    }
+                /* adjust the timestamps so they always reflect the start of the frame */
+                uint64_t adjust;
+                if (type == '1') {
+                    // Mode A/C, timestamp reported at F2 which is 20.3us after F1
+                    adjust = 20300;
+                } else if (type == '2') {
+                    // Mode S short, timestamp reported at end of frame, frame is 8us preamble plus 56us data
+                    adjust = 64000;
+                } else if (type == '3') {
+                    // Mode S long, timestamp reported at end of frame, frame is 8us preamble plus 112us data
+                    adjust = 120000;
+                } else {
+                    // anything else we assume is already correct
+                    adjust = 0;
+                }
+
+                if (adjust <= timestamp) {
+                    timestamp = timestamp - adjust;
+                } else {
+                    /* wrap it to the previous day */
+                    timestamp = timestamp + 86400 * 1000000000ULL - adjust;
                 }
 
                 /* check for end of day rollover */
