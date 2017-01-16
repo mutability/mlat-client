@@ -1,10 +1,12 @@
-mlat-client (0.2.8~dev) UNRELEASED; urgency=medium
+mlat-client (0.2.8) stable; urgency=medium
 
   * Mode A/C support
   * DF18 trackfile identifier support for Mode A/C results
   * Radarcape position message support
+  * Update Beast-format timestamp adjustments to match the behavior of
+    the Beast/Radarcape. This effectively only changes Mode A/C.
 
- -- Oliver Jowett <oliver@mutability.co.uk>  Tue, 27 Dec 2016 13:45:03 +0000
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 16 Jan 2017 14:14:29 +0000
 
 mlat-client (0.2.7) stable; urgency=medium
 
