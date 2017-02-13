@@ -1,3 +1,10 @@
+mlat-client (0.2.9~dev) UNRELEASED; urgency=medium
+
+  * in development
+  * Fix jsonclient result path (github issue #18)
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 13 Feb 2017 21:37:00 +0000
+
 mlat-client (0.2.8) stable; urgency=medium
 
   * Mode A/C support

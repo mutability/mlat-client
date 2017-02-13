@@ -18,4 +18,4 @@
 
 """Just a version constant!"""
 
-CLIENT_VERSION = "0.2.8"
+CLIENT_VERSION = "0.2.9~dev"
