@@ -529,10 +529,15 @@ static PyObject *make_radarcape_position_event(modesreader *self, uint8_t *data)
     return modesmessage_new_eventmessage(DF_EVENT_RADARCAPE_POSITION, 0, eventdata);
 }
 
+static int is_synthetic_timestamp(unsigned long long timestamp)
+{
+    return (timestamp == 0 || timestamp == MAGIC_MLAT_TIMESTAMP);
+}
+
 /* check if the given timestamp is in range (not a jump), return 1 if it is */
 static int timestamp_check(modesreader *self, unsigned long long timestamp)
 {
-    if (timestamp == 0 || timestamp == MAGIC_MLAT_TIMESTAMP)
+    if (is_synthetic_timestamp(timestamp))
         return 1;
 
     if (self->last_timestamp == 0)
@@ -553,7 +558,7 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
 /* update self->last_timestamp given that we just saw this timestamp */
 static void timestamp_update(modesreader *self, unsigned long long timestamp)
 {
-    if (timestamp == 0 || timestamp == MAGIC_MLAT_TIMESTAMP) {
+    if (is_synthetic_timestamp(timestamp)) {
         /* special timestamps, don't use them */
         return;
     }
@@ -730,7 +735,7 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             }
         }
 
-        if (has_timestamp_signal) {
+        if (has_timestamp_signal && !is_synthetic_timestamp(timestamp)) {
             if (self->decoder_mode == DECODER_BEAST) {
                 /* 12MHz mode */
 
