@@ -25,13 +25,14 @@ exec(open('mlat/client/version.py').read())
 
 more_warnings = False
 extra_compile_args = []
-if more_warnings and get_default_compiler() == 'unix':
+#if more_warnings and get_default_compiler() == 'unix':
     # let's assume this is GCC
-    extra_compile_args.append('-Wpointer-arith')
+#    extra_compile_args.append('-Wpointer-arith')
 
+# include_dirs=['/usr/include/x86_64-linux-gnu/c++/6']
 modes_ext = Extension('_modes',
-                      sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'],
-                      extra_compile_args=extra_compile_args)
+                      sources=['ac_decoder.cpp' ,'_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c' ],
+                      extra_compile_args=extra_compile_args )
 
 setup(name='MlatClient',
       version=CLIENT_VERSION,

@@ -1,26 +1,9 @@
 #ifndef __AC_DECODER_INCLUDE__
 #define __AC_DECODER_INCLUDE__
-#include <map>
-
 #include <time.h>
-#include "ending.h"
+#include <map>
+#include "ac_decoder_c.h"
 
-//A模式，应答机编码
-#define AC_MODE_A	1
-//C模式高度编码
-#define AC_MODE_C	2
-//无法区分
-#define AC_MODE_NA	0
-//无效的高度
-#define AC_INVALID_ALTITUDE -1
-
-typedef struct ac_decode_result
-{
-	int type ;
-	unsigned short squawk ;
-	bool is_spi ; 
-	int altitude ; 
-}ac_decode_result_t ;
 
 
 class ac_decoder

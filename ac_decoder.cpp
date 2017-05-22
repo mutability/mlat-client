@@ -1,5 +1,7 @@
-#include "stdafx.h"
 #include "ac_decoder.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 ac_decoder::ac_decoder() 
 	:check_stat_interval(10)
@@ -21,20 +23,11 @@ ac_decode_result_t ac_decoder::decode(unsigned char ac[2] )
 		next_check_time = now + check_stat_interval ;
 	}
 
-	/*
-	AC数据全为0，应该是硬件数据错误
-	*/
 	if(ac[0]+ac[1]==0)
 		return result; 
 
-	//X位恒为零
 	if(ac[1]&0x40)
 		return	result; 
-
-	/*
-	AC原始数据格式为:	SPI,0，0，C1， A1，C2，A2，C4 ,A4，X,B1，D1，B2，D2，B4，D4 , 
-	转换后数据格式为:	00 A4 A2 A1 , 00 B4 B2 B1 , SPI C4 C2 C1 , 00 D4 D2 D1
-	*/
 
 	unsigned short modeac =
 		((ac[0] & 0x10) ? 0x0010 : 0) |  // C1
@@ -76,33 +69,19 @@ ac_decode_result_t ac_decoder::decode(unsigned char ac[2] )
 int ac_decoder::get_ac_type(unsigned short modeac )
 {
 
-	/*
-	modeac参数排列顺序:
-	00 A4 A2 A1  00 B4 B2 B1  SPI C4 C2 C1  00 D4 D2 D1
-	*/
 #define MIN_AC_COUNT	3
 
-	/*
-	如果SPI脉冲出现，则为A模式
-	*/
 	if(modeac&0x0080)
 	{
 		return AC_MODE_A ; 
 	}
 
-	/*
-	a.如果squawk为特殊的三个号码，则为A模式
-	*/
 	unsigned short	squawk = modeac&0x7777 ;
 	if(squawk ==0x7500 ||
 		squawk ==0x7600 ||
 		squawk == 0x7700)
 		return AC_MODE_A ; 
 
-	/*
-	b.如果C4 C2 C1的解码结果C 为0、5、7 之一时，判定为A 模式识别代码
-	c.如果D4 D2 D1的解码结果D 为1、2、3、5、6、7 之一时，判定为A 模式识别代码
-	*/
 	int cvalue =	(modeac>>4)&0x0007  ; 
 	int dvalue =	modeac&0x0007;
 
@@ -121,27 +100,17 @@ int ac_decoder::get_ac_type(unsigned short modeac )
 		inc_mode_stat(a_mode_stat,modeac);
 		if(counted ==-1 || counted	>MIN_AC_COUNT)
 		{
-			//第一次收到此报文,或者检测周期内已经多次收到报文
 			return AC_MODE_A ;
 		}
 		else
 		{
-			//检验是A模式代码，但是收到相同报文太少，则可能是硬件接收错误，
-			//保守认为其是错误的报文
 			return	AC_MODE_NA ;
 		}
 	}
 
-	//报文不能肯定为A模式报文，可能为C模式或者A模式，进行后续判断
 	unsigned int counted =get_mode_count_stat(na_mode_stat ,modeac);
 	if(counted >MIN_AC_COUNT)
 	{
-		/*
-		此AC报文多次稳定出现，则可能是A代码，或者是巡航高度飞行的飞机.
-		将此报文按照C模式进行解码，如果位于名航巡航高度（5100~14900米）(16700~48900 英尺)
-		，即认为是C模式代码，否则认为是A代码
-		*/
-
 		int altitude = AC_INVALID_ALTITUDE ; 
 		int modeC = modeA2modeC(modeac);
 		if (modeC != AC_INVALID_ALTITUDE) 
@@ -149,26 +118,22 @@ int ac_decoder::get_ac_type(unsigned short modeac )
 			altitude = modeC * 100;
 			if(altitude >=16700 && altitude <=48900)
 			{
-				//目标高度满足民航飞行高度要求，认为是C模式代码
 				return	 AC_MODE_C ;
 			}
 			else
 			{
-				//不在民航指定的高度内飞行，认为是A模式代码
 				inc_mode_stat(a_mode_stat , modeac);
 				return AC_MODE_A ;
 			}
 		}
 		else
 		{
-			//按照C模式解码失败，则认为是A模式代码
 			inc_mode_stat(a_mode_stat , modeac);
 			return AC_MODE_A ;
 		}
 
 	}
 
-	//完全无法确认的报文
 	inc_mode_stat(na_mode_stat , modeac);
 	return AC_MODE_NA; 
 }
@@ -249,3 +214,13 @@ void ac_decoder::commit_ac_mode_stat()
 	}
 }
 
+
+
+ac_decoder* global_ac_decoder_ptr = NULL ;
+   ac_decode_resultd   ac_decode(unsigned char ac[2])
+{
+    if(global_ac_decoder_ptr == NULL)
+        global_ac_decoder_ptr = new ac_decoder() ;
+
+    return global_ac_decoder_ptr->decode(ac);
+}
