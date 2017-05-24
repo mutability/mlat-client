@@ -783,7 +783,11 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
 
                 if (!self->radarcape_utc_bugfix) {
                     /* fix up the timestamp so it is UTC, not 1 second ahead */
-                    --secs;
+                    if (secs == 0) {
+                        secs = 86399;
+                    } else {
+                        --secs;
+                    }
                 }
 
                 timestamp = nanos + secs * 1000000000;
