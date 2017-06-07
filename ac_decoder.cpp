@@ -96,7 +96,7 @@ int ac_decoder::get_ac_type(unsigned short modeac )
 		dvalue==7)
 		)
 	{
-		unsigned int counted =get_mode_count_stat(a_mode_stat , modeac);
+		 int counted =get_mode_count_stat(a_mode_stat , modeac);
 		inc_mode_stat(a_mode_stat,modeac);
 		if(counted ==-1 || counted	>MIN_AC_COUNT)
 		{
@@ -108,7 +108,7 @@ int ac_decoder::get_ac_type(unsigned short modeac )
 		}
 	}
 
-	unsigned int counted =get_mode_count_stat(na_mode_stat ,modeac);
+	 int counted =get_mode_count_stat(na_mode_stat ,modeac);
 	if(counted >MIN_AC_COUNT)
 	{
 		int altitude = AC_INVALID_ALTITUDE ; 

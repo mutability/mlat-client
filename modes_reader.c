@@ -1384,11 +1384,20 @@ static int filter_message(modesreader *self, PyObject *o)
     modesmessage *message = (modesmessage *)o;
 
     if (message->df == DF_MODEAC) {
+        if (self->seen != NULL && self->seen != Py_None)
+         {
+            if (PySet_Add(self->seen, message->address) < 0) {
+                printf("DF_MODEAC PySet_Add Failed!\r\n") ;
+
+                return -1;
+            }
+         }
+
+
         if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
             return PySequence_Contains(self->modeac_filter, message->address);
         }
-
-        return 1;
+        return 0;
     }
 
     if (!message->valid) {

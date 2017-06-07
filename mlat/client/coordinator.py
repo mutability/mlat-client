@@ -149,7 +149,12 @@ class Coordinator:
             ac = self.aircraft.get(icao)
             if not ac:
                 ac = Aircraft(icao)
-                ac.requested = (icao in self.requested_traffic)
+
+                if(icao>0xFF0000):
+                    ac.requested = (icao in self.requested_modeac)
+                else:
+                    ac.requested = (icao in self.requested_traffic)
+
                 ac.rate_measurement_start = now
                 self.aircraft[icao] = ac
 
@@ -432,6 +437,22 @@ class Coordinator:
             self.server.send_sync(ac.even_message, ac.odd_message)
 
     def received_modeac(self, message, now):
+        #AC Mode
+        ac = self.aircraft.get(message.address)
+        if not ac:
+            ac = Aircraft(message.address)
+            ac.requested = (message.address in self.requested_modeac)
+            ac.messages += 1
+            ac.last_message_time = now
+            ac.rate_measurement_start = now
+            self.aircraft[message.address] = ac
+            return  # wait for more messages
+
+        ac.messages += 1
+        ac.last_message_time = now
+        if ac.messages < 10:
+            return
+
         if message.address not in self.requested_modeac:
             return
 
