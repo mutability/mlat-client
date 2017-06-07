@@ -50,7 +50,7 @@ class Coordinator:
     update_interval = 5.0
     report_interval = 30.0
     stats_interval = 900.0
-    position_expiry_age = 30.0
+    position_expiry_age = 5.0
     expiry_age = 60.0
 
     def __init__(self, receiver, server, outputs, freq, allow_anon, allow_modeac):
@@ -149,12 +149,7 @@ class Coordinator:
             ac = self.aircraft.get(icao)
             if not ac:
                 ac = Aircraft(icao)
-
-                if(icao>0xFF0000):
-                    ac.requested = (icao in self.requested_modeac)
-                else:
-                    ac.requested = (icao in self.requested_traffic)
-
+                ac.requested = (icao in self.requested_traffic)
                 ac.rate_measurement_start = now
                 self.aircraft[icao] = ac
 
@@ -357,8 +352,8 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < self.position_expiry_age:
-            return   # reported position recently, no need for mlat
+        #if now - ac.last_position_time < self.position_expiry_age:
+        #   return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
     def received_df11(self, message, now):
@@ -381,8 +376,8 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < self.position_expiry_age:
-            return   # reported position recently, no need for mlat
+        #if now - ac.last_position_time < self.position_expiry_age:
+        #    return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
     def received_df17(self, message, now):
@@ -435,14 +430,16 @@ class Coordinator:
 
             # this is a useful reference message pair
             self.server.send_sync(ac.even_message, ac.odd_message)
+            self.server.send_mlat(message)
 
     def received_modeac(self, message, now):
         #AC Mode
-        print("received_modeac : " ,message.addresss )
+
+        #print("received_modeac : " ,message.address )
         ac = self.aircraft.get(message.address)
         if not ac:
             ac = Aircraft(message.address)
-            ac.requested = (message.address in self.requested_modeac)
+            ac.requested = (message.address in self.requested_traffic)
             ac.messages += 1
             ac.last_message_time = now
             ac.rate_measurement_start = now
@@ -454,7 +451,10 @@ class Coordinator:
         if ac.messages < 10:
             return
 
-        if message.address not in self.requested_modeac:
+        ac.recent_adsb_positions += 1
+        #if message.address not in self.requested_modeac:
+        #    return
+        if not ac.requested:
             return
 
         self.server.send_mlat(message)

@@ -385,12 +385,12 @@ static int decode(modesmessage *self)
     Py_CLEAR(self->address);
     Py_CLEAR(self->altitude);
 
+
     if (self->datalen == 2) {
     //AC Message decode , A Mode Start With 0xFFXXXX
 
         unsigned char ac[2] ;
         memcpy(ac , self->data , 2);
-
         ac_decode_result_t  ac_ret  = ac_decode(ac) ;
         if(ac_ret.type == AC_MODE_A)
         {
@@ -398,12 +398,15 @@ static int decode(modesmessage *self)
             int ac_fix_icao = 0x00FF0000 | ac_ret.squawk ;
             self->address = PyLong_FromLong(ac_fix_icao) ;
             self->valid = 1;
-            printf("A Mode:%06X\r\n" ,ac_fix_icao);
             return 0;
         }
         else
-            return -1;
+            {
+             self->valid = 0;
+            }
+
     }
+
 
     self->df = (self->data[0] >> 3) & 31;
 
