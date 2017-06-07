@@ -438,6 +438,7 @@ class Coordinator:
 
     def received_modeac(self, message, now):
         #AC Mode
+        print("received_modeac : " ,message.addresss )
         ac = self.aircraft.get(message.address)
         if not ac:
             ac = Aircraft(message.address)

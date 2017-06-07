@@ -1387,8 +1387,6 @@ static int filter_message(modesreader *self, PyObject *o)
         if (self->seen != NULL && self->seen != Py_None)
          {
             if (PySet_Add(self->seen, message->address) < 0) {
-                printf("DF_MODEAC PySet_Add Failed!\r\n") ;
-
                 return -1;
             }
          }
