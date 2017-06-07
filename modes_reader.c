@@ -1383,6 +1383,7 @@ static int filter_message(modesreader *self, PyObject *o)
 {
     modesmessage *message = (modesmessage *)o;
 
+/*
     if (message->df == DF_MODEAC) {
         if (self->seen != NULL && self->seen != Py_None)
          {
@@ -1397,7 +1398,7 @@ static int filter_message(modesreader *self, PyObject *o)
         }
         return 0;
     }
-
+*/
     if (!message->valid) {
         return self->want_invalid_messages; /* don't process further, contents are dubious */
     }
