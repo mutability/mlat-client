@@ -49,7 +49,7 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
         try:
             self.set_reuse_addr()
             self.bind(('', port))
-            self.listen(0)
+            self.listen(5)
         except:
             self.close()
             raise
