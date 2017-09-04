@@ -30,7 +30,7 @@ class Receiver(object):
         self.parser.default_filter[17] = True
 
         self.frequency = None
-        self.task = asyncio.ensure_future(self.handle_connection())
+        self.task = asyncio.async(self.handle_connection())
         self.correlator = correlator
 
     def __str__(self):
