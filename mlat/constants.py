@@ -31,7 +31,7 @@ DTOR = math.pi / 180.0
 RTOD = 180.0 / math.pi
 
 # feet to metres
-FTOM = 0.3038
+FTOM = 0.3048
 # metres to feet
 MTOF = 1.0/FTOM
 
