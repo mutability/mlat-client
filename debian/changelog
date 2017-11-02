@@ -1,3 +1,13 @@
+mlat-client (0.2.10) stable; urgency=medium
+
+  * Fix handling of special (synthetic mlat / zero) message timestamps
+  * Fix handling of Radarcape UTC midnight timestamp rollover
+  * Fix typo in feet/meters conversion
+  * Increase listen queue size on listening output sockets
+  * Add a message timing correlation script
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Thu, 02 Nov 2017 13:11:26 +0000
+
 mlat-client (0.2.9) stable; urgency=medium
 
   * Fix jsonclient result path (github issue #18)
