@@ -16,6 +16,32 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Just a version constant!"""
+"""
+Copy received Mode S messages to mirror server.
+"""
 
-CLIENT_VERSION = "0.2.11"
+import socket
+import errno
+
+import _modes
+import mlat.profile
+from mlat.client.stats import global_stats
+from mlat.client.net import ReconnectingConnection
+from mlat.client.util import log, monotonic_time
+
+class MirrorReceiverConnection(ReconnectingConnection):
+    reconnect_interval = 15.0
+
+    def __init__(self, host, port):
+             if host != 'null':
+                  ReconnectingConnection.__init__(self, host, port)
+                  self.reset_connection()
+
+    def start_connection(self):
+        log('Mirror connected to {0}:{1}', self.host, self.port)
+        self.state = 'connected'
+
+    @mlat.profile.trackcpu
+
+    def send_to_mirror(self,messages):
+        self.send(messages)
