@@ -33,15 +33,17 @@ class MirrorReceiverConnection(ReconnectingConnection):
     reconnect_interval = 15.0
 
     def __init__(self, host, port):
-             if host != 'null':
-                  ReconnectingConnection.__init__(self, host, port)
-                  self.reset_connection()
+          ReconnectingConnection.__init__(self, host, port)
+          self.reset_connection()
+
+    @mlat.profile.trackcpu
 
     def start_connection(self):
         log('Mirror connected to {0}:{1}', self.host, self.port)
         self.state = 'connected'
 
-    @mlat.profile.trackcpu
 
+"""
     def send_to_mirror(self,messages):
         self.send(messages)
+"""

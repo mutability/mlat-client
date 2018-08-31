@@ -30,7 +30,7 @@ from mlat.client.net import ReconnectingConnection
 from mlat.client.util import log, monotonic_time
 from mlat.client.receiver import ReceiverConnection
 
-class ReceiverConnection_mirror(ReceiverConnection):
+class ReceiverConnectionMirror(ReceiverConnection):
 
     def __init__(self, host, port, mode):
         super().__init__(host, port, mode)
