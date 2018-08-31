@@ -23,11 +23,11 @@ import mlat.client.version
 
 from mlat.client.util import log
 from mlat.client.receiver import ReceiverConnection
-from mlat.client.receiver_mirror import ReceiverConnection_mirror
+from mlat.client.receiver_mirror import ReceiverConnectionMirror
 from mlat.client.mirror import MirrorReceiverConnection
 from mlat.client.jsonclient import JsonServerConnection
 from mlat.client.coordinator import Coordinator
-from mlat.client.coordinator_mirror import Coordinator_mirror
+from mlat.client.coordinator_mirror import CoordinatorMirror
 from mlat.client import options
 
 
@@ -100,10 +100,10 @@ location pin from the coverage maps.""",
 
          mirror_receiver = MirrorReceiverConnection(host=args.mirror_server[0], port=args.mirror_server[1])
 
-         receiver = ReceiverConnection_mirror(host=args.input_connect[0], port=args.input_connect[1],
+         receiver = ReceiverConnectionMirror(host=args.input_connect[0], port=args.input_connect[1],
                                   mode=options.connection_mode(args))
 
-         coordinator = Coordinator_mirror(receiver=receiver, mirror_receiver=mirror_receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
+         coordinator = CoordinatorMirror(receiver=receiver, mirror_receiver=mirror_receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
                                    allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
     else:
          receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
