@@ -40,4 +40,9 @@ setup(name='MlatClient',
       author_email='oliver@mutability.co.uk',
       packages=['mlat', 'mlat.client', 'flightaware', 'flightaware.client'],
       ext_modules=[modes_ext],
-      scripts=['mlat-client', 'fa-mlat-client'])
+      entry_points = {
+          'console_scripts': [
+              'mlat-client=mlat.client.cli:main',
+              'fa-mlat-client=flightaware.client.cli:main',
+          ],
+      })
