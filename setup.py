@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 # Part of mlat-client - an ADS-B multilateration client.
 # Copyright 2015, Oliver Jowett <oliver@mutability.co.uk>
