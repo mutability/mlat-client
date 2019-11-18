@@ -62,6 +62,7 @@ def monotonic_time():
     _last = now
     return now + _adjust
 
+
 try:
     # try to use the 3.3+ version when available
     from time import monotonic as monotonic_time  # noqa

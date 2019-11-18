@@ -50,7 +50,7 @@ class OutputListener(LoggingMixin, asyncore.dispatcher):
             self.set_reuse_addr()
             self.bind(('', port))
             self.listen(5)
-        except:
+        except Exception:
             self.close()
             raise
 
