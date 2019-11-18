@@ -13,7 +13,6 @@ import struct
 
 from mlat.client import net, util, stats, version
 
-
 # UDP protocol submessages
 # TODO: This needs merging with mlat-client's variant
 # (they are not quite identical so it'll need a new
@@ -39,6 +38,21 @@ STRUCT_ABS_SYNC = struct.Struct(">B3BQQ14s14s")
 STRUCT_MLAT_MODEAC = struct.Struct(">Bi2s")
 
 
+if sys.platform == 'linux':
+    IP_MTU = 14   # not defined in the socket module, unfortunately
+
+    def get_mtu(s):
+        try:
+            return s.getsockopt(socket.SOL_IP, IP_MTU)
+        except OSError:
+            return None
+        except socket.error:
+            return None
+else:
+    def get_mtu(s):
+        return None
+
+
 class UdpServerConnection:
     def __init__(self, host, port, key):
         self.host = host
@@ -52,6 +66,8 @@ class UdpServerConnection:
         self.seq = 0
         self.count = 0
         self.sock = None
+        self.mtu = 1400
+        self.route_mtu = -1
 
     def start(self):
         addrlist = socket.getaddrinfo(host=self.host,
@@ -67,6 +83,21 @@ class UdpServerConnection:
         a_family, a_type, a_proto, a_canonname, a_sockaddr = addrlist[0]
         self.sock = socket.socket(a_family, a_type, a_proto)
         self.remote_address = a_sockaddr
+        self.refresh_socket()
+
+    def refresh_socket(self):
+        try:
+            self.sock.connect(self.remote_address)
+        except OSError:
+            pass
+        except socket.error:
+            pass
+
+        new_mtu = get_mtu(self.sock)
+        if new_mtu is not None and new_mtu != self.route_mtu:
+            util.log('Route MTU changed to {0}', new_mtu)
+            self.route_mtu = new_mtu
+            self.mtu = max(100, self.route_mtu - 100)
 
     def prepare_header(self, timestamp):
         self.base_timestamp = timestamp
@@ -113,7 +144,7 @@ class UdpServerConnection:
                                        delta, bytes(message))
             self.used += STRUCT_MLAT_LONG.size
 
-        if self.used > 1400:
+        if self.used > self.mtu:
             self.flush()
 
     def send_sync(self, em, om):
@@ -145,7 +176,7 @@ class UdpServerConnection:
                                   edelta, odelta, bytes(em), bytes(om))
             self.used += STRUCT_SYNC.size
 
-        if self.used > 1400:
+        if self.used > self.mtu:
             self.flush()
 
     def flush(self):
@@ -153,7 +184,7 @@ class UdpServerConnection:
             return
 
         try:
-            self.sock.sendto(memoryview(self.buf)[0:self.used], self.remote_address)
+            self.sock.send(memoryview(self.buf)[0:self.used])
         except socket.error:
             pass
 
@@ -163,6 +194,9 @@ class UdpServerConnection:
         self.base_timestamp = None
         self.seq = (self.seq + 1) & 0xffff
         self.count += 1
+
+        if self.count % 50 == 0:
+            self.refresh_socket()
 
     def close(self):
         self.used = 0
