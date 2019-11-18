@@ -1,3 +1,9 @@
+mlat-client (0.2.11) UNRELEASED; urgency=medium
+
+  * in development
+
+ -- Oliver Jowett <oliver@mutability.co.uk>  Mon, 18 Nov 2019 13:53:02 +0800
+
 mlat-client (0.2.10) stable; urgency=medium
 
   * Fix handling of special (synthetic mlat / zero) message timestamps
