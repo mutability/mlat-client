@@ -23,8 +23,11 @@ import mlat.client.version
 
 from mlat.client.util import log
 from mlat.client.receiver import ReceiverConnection
+from mlat.client.receiver_mirror import ReceiverConnectionMirror
+from mlat.client.mirror import MirrorReceiverConnection
 from mlat.client.jsonclient import JsonServerConnection
 from mlat.client.coordinator import Coordinator
+from mlat.client.coordinator_mirror import CoordinatorMirror
 from mlat.client import options
 
 
@@ -65,6 +68,9 @@ location pin from the coverage maps.""",
                         help="host:port of the multilateration server to connect to",
                         type=options.hostport,
                         default=('mlat.mutability.co.uk', 40147))
+    server.add_argument('--mirror_server',
+                        help="host:port for mirrored traffic",
+                        type=options.hostport)
     server.add_argument('--no-udp',
                         dest='udp',
                         help="Don't offer to use UDP transport for sync/mlat messages",
@@ -77,8 +83,6 @@ location pin from the coverage maps.""",
 
     outputs = options.build_outputs(args)
 
-    receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
-                                  mode=options.connection_mode(args))
     server = JsonServerConnection(host=args.server[0], port=args.server[1],
                                   handshake_data={'lat': args.lat,
                                                   'lon': args.lon,
@@ -92,8 +96,20 @@ location pin from the coverage maps.""",
                                   offer_udp=args.udp,
                                   return_results=(len(outputs) > 0))
 
-    coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
-                              allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
+    if args.mirror_server is not None:
+
+         mirror_receiver = MirrorReceiverConnection(host=args.mirror_server[0], port=args.mirror_server[1])
+
+         receiver = ReceiverConnectionMirror(host=args.input_connect[0], port=args.input_connect[1],
+                                  mode=options.connection_mode(args))
+
+         coordinator = CoordinatorMirror(receiver=receiver, mirror_receiver=mirror_receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
+                                   allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
+    else:
+         receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
+                                  mode=options.connection_mode(args))
+         coordinator = Coordinator(receiver=receiver, server=server, outputs=outputs, freq=options.clock_frequency(args),
+                                   allow_anon=args.allow_anon_results, allow_modeac=args.allow_modeac_results)
 
     server.start()
     coordinator.run_forever()
