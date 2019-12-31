@@ -17,6 +17,7 @@
  */
 
 #include "_modes.h"
+#include "ac_decoder_c.h"
 
 /* methods / type behaviour */
 static PyObject *modesmessage_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
@@ -112,11 +113,14 @@ static PyTypeObject modesmessageType = {
     modesmessage_new,                 /* tp_new         */
 };
 
+
 /*
  * module setup
  */
 int modesmessage_module_init(PyObject *m)
 {
+
+
     if (PyType_Ready(&modesmessageType) < 0)
         return -1;
 
@@ -381,12 +385,28 @@ static int decode(modesmessage *self)
     Py_CLEAR(self->address);
     Py_CLEAR(self->altitude);
 
+
     if (self->datalen == 2) {
-        self->df = DF_MODEAC;
-        self->address = PyLong_FromLong((self->data[0] << 8) | self->data[1]);
-        self->valid = 1;
-        return 0;
+    //AC Message decode , A Mode Start With 0xFFXXXX
+
+        unsigned char ac[2] ;
+        memcpy(ac , self->data , 2);
+        ac_decode_result_t  ac_ret  = ac_decode(ac) ;
+        if(ac_ret.type == AC_MODE_A)
+        {
+            self->df = DF_MODEAC;
+            int ac_fix_icao = 0x00FF0000 | ac_ret.squawk ;
+            self->address = PyLong_FromLong(ac_fix_icao) ;
+            self->valid = 1;
+            return 0;
+        }
+        else
+            {
+             self->valid = 0;
+            }
+
     }
+
 
     self->df = (self->data[0] >> 3) & 31;
 

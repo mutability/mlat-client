@@ -3,3 +3,5 @@ build
 dist
 *.so
 test*.sh
+.idea/*
+.idea/
