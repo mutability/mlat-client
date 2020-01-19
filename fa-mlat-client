@@ -47,6 +47,7 @@ def main():
     adept.start(coordinator)
     coordinator.run_until(lambda: adept.closed)
 
+
 if __name__ == '__main__':
     try:
         main()
