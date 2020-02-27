@@ -37,6 +37,7 @@ class Stats:
         self.receiver_rx_bytes = 0
         self.receiver_rx_messages = 0
         self.receiver_rx_filtered = 0
+        self.receiver_rx_mlat = 0
         self.mlat_positions = 0
 
     def log_and_reset(self):
@@ -48,6 +49,9 @@ class Stats:
             self.receiver_rx_messages / elapsed,
             processed / elapsed,
             0 if self.receiver_rx_messages == 0 else 100.0 * processed / self.receiver_rx_messages)
+        if self.receiver_rx_mlat:
+            log('WARNING: Ignored {0:5d} messages with MLAT magic timestamp (do you have --forward-mlat on?)',
+                self.receiver_rx_mlat)
         log('Server:   {0:6.1f} kB/s from server   {1:4.1f}kB/s TCP to server  {2:6.1f}kB/s UDP to server',
             self.server_rx_bytes / elapsed / 1000.0,
             self.server_tx_bytes / elapsed / 1000.0,

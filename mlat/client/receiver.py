@@ -207,7 +207,8 @@ class ReceiverConnection(ReconnectingConnection):
 
         global_stats.receiver_rx_messages += self.reader.received_messages
         global_stats.receiver_rx_filtered += self.reader.suppressed_messages
-        self.reader.received_messages = self.reader.suppressed_messages = 0
+        global_stats.receiver_rx_mlat     += self.reader.mlat_messages
+        self.reader.received_messages = self.reader.suppressed_messages = self.reader.mlat_messages = 0
 
         if messages:
             self.coordinator.input_received_messages(messages)

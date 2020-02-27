@@ -63,6 +63,7 @@ typedef struct {
     /* stats */
     unsigned int received_messages;
     unsigned int suppressed_messages;
+    unsigned int mlat_messages;
 } modesreader;
 
 /* methods for the modesreader type */
@@ -91,6 +92,7 @@ static PyMemberDef modesreaderMembers[] = {
     { "modeac_filter",         T_OBJECT,    offsetof(modesreader, modeac_filter),         0,         "Mode A/C accept filter"},
     { "received_messages",     T_UINT,      offsetof(modesreader, received_messages),     0,         "total number of messages decoded"},
     { "suppressed_messages",   T_UINT,      offsetof(modesreader, suppressed_messages),   0,         "number of messages suppressed by filtering"},
+    { "mlat_messages",         T_UINT,      offsetof(modesreader, mlat_messages),         0,         "number of incoming MLAT messages received (and ignored)"},
     { NULL, 0, 0, 0, NULL }
 };
 
@@ -240,7 +242,7 @@ static PyObject *modesreader_new(PyTypeObject *type, PyObject *args, PyObject *k
     Py_INCREF(Py_None); self->specific_filter = Py_None;
     Py_INCREF(Py_None); self->modeac_filter = Py_None;
 
-    self->received_messages = self->suppressed_messages = 0;
+    self->received_messages = self->suppressed_messages = self->mlat_messages = 0;
 
     return (PyObject *)self;
 }
@@ -1392,6 +1394,12 @@ static int filter_message(modesreader *self, PyObject *o)
 {
     modesmessage *message = (modesmessage *)o;
 
+    // Check this, first.  We don't really want to use MLAT msgs...
+    if (message->timestamp == MAGIC_MLAT_TIMESTAMP && !self->want_mlat_messages) {
+        ++self->mlat_messages;
+        return 0;
+    }
+
     if (message->df == DF_MODEAC) {
         if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
             return PySequence_Contains(self->modeac_filter, message->address);
@@ -1417,10 +1425,6 @@ static int filter_message(modesreader *self, PyObject *o)
     }
 
     if (message->timestamp == 0 && !self->want_zero_timestamps) {
-        return 0;
-    }
-
-    if (message->timestamp == MAGIC_MLAT_TIMESTAMP && !self->want_mlat_messages) {
         return 0;
     }
 
