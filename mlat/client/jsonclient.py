@@ -335,6 +335,13 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             compress_methods.append('zlib')
             compress_methods.append('zlib2')
 
+        uuid = None
+        try:
+            with open('/boot/adsbx-uuid') as file:
+                uuid = file.readline()
+        except Exception:
+            pass
+
         handshake_msg = {'version': 3,
                          'client_version': mlat.client.version.CLIENT_VERSION,
                          'compress': compress_methods,
@@ -342,11 +349,12 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                          'heartbeat': True,
                          'return_results': self.return_results,
                          'udp_transport': 2 if self.offer_udp else False,
-                         'return_result_format': 'ecef'}
+                         'return_result_format': 'ecef',
+                         'uuid': uuid}
         handshake_msg.update(self.handshake_data)
         if DEBUG:
             log("Handshake: {0}", handshake_msg)
-        self.writebuf += (json.dumps(handshake_msg) + '\n').encode('ascii')   # linebuf not used yet
+        self.writebuf += (json.dumps(handshake_msg) + 16 * '        ' + '\n').encode('ascii')   # linebuf not used yet
         self.consume_readbuf = self.consume_readbuf_uncompressed
         self.handle_server_line = self.handle_handshake_response
 
