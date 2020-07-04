@@ -307,6 +307,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def send_input_disconnected(self):
         self._send_json({'input_disconnected': 'disconnected'})
 
+    def send_clock_jump(self):
+        self._send_json({'clock_jump': True})
+
     def send_clock_reset(self, reason, frequency=None, epoch=None, mode=None):
         details = {
             'reason': reason
