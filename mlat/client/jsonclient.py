@@ -268,7 +268,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def _send_json(self, o):
         if DEBUG:
             log('Send: {0}', o)
-        self.linebuf.append(json.dumps(o, separators=(',', ':')))
+        self.linebuf.append(json.dumps(o, separators=(',', ':'), sort_keys=True))
 
     #
     # TCP transport
@@ -338,7 +338,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         uuid = None
         try:
             with open('/boot/adsbx-uuid') as file:
-                uuid = file.readline()
+                uuid = file.readline().rstrip('\n')
         except Exception:
             pass
 
