@@ -268,7 +268,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     def _send_json(self, o):
         if DEBUG:
             log('Send: {0}', o)
-        self.linebuf.append(json.dumps(o, separators=(',', ':'), sort_keys=True))
+        self.linebuf.append(json.dumps(o, separators=(',', ':')))
 
     #
     # TCP transport
@@ -354,7 +354,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         handshake_msg.update(self.handshake_data)
         if DEBUG:
             log("Handshake: {0}", handshake_msg)
-        self.writebuf += (json.dumps(handshake_msg) + 16 * '        ' + '\n').encode('ascii')   # linebuf not used yet
+        self.writebuf += (json.dumps(handshake_msg, sort_keys=True) + 16 * '        ' + '\n').encode('ascii')   # linebuf not used yet
         self.consume_readbuf = self.consume_readbuf_uncompressed
         self.handle_server_line = self.handle_handshake_response
 
