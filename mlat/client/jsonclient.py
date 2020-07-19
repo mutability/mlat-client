@@ -187,6 +187,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.return_results = return_results
         self.coordinator = None
         self.udp_transport = None
+        self.last_clock_reset = time.monotonic()
 
         self.reset_connection()
 
@@ -308,7 +309,10 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self._send_json({'input_disconnected': 'disconnected'})
 
     def send_clock_jump(self):
-        self._send_json({'clock_jump': True})
+        now = time.monotonic()
+        if now > self.last_clock_reset + 0.5:
+            self.last_clock_reset = now
+            self._send_json({'clock_jump': True})
 
     def send_clock_reset(self, reason, frequency=None, epoch=None, mode=None):
         details = {
