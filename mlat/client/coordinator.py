@@ -231,7 +231,7 @@ class Coordinator:
         self.newly_seen = set()
         self.aircraft = {}
         self.reported = set()
-        self.next_report = monotonic_time() + self.report_interval
+        self.next_report = monotonic_time() + self.report_interval / 2
         if self.receiver.state != 'ready':
             self.receiver.reconnect()
 
