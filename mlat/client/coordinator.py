@@ -85,6 +85,7 @@ class Coordinator:
         self.next_profile = monotonic_time()
         self.next_aircraft_update = self.last_aircraft_update = monotonic_time()
         self.recent_jumps = 0
+        self.last_jump_message = 0
 
         receiver.coordinator = self
         server.coordinator = self
@@ -328,8 +329,9 @@ class Coordinator:
     def received_timestamp_jump_event(self, message, now):
         self.recent_jumps += 1
         self.server.send_clock_jump()
-        if self.recent_jumps == 10:
-            log("Warning: the timestamps provided by your receiver do not seem to be self-consistent. "
+        if self.recent_jumps % 9 == 8 and time.monotonic() > self.last_jump_message + 300.0 :
+            self.last_jump_message = time.monotonic()
+            log("WARNING: the timestamps provided by your receiver do not seem to be self-consistent. "
                 "This can happen if you feed data from multiple receivers to a single mlat-client, which "
                 "is not supported; use a separate mlat-client for each receiver.")
 
