@@ -21,7 +21,7 @@ import argparse
 
 import mlat.client.version
 
-from mlat.client.util import log
+from mlat.client import util
 from mlat.client.receiver import ReceiverConnection
 from mlat.client.jsonclient import JsonServerConnection
 from mlat.client.coordinator import Coordinator
@@ -71,9 +71,18 @@ location pin from the coverage maps.""",
                         action='store_false',
                         default=True)
 
+    logOptions = parser.add_argument_group('Log Options')
+    logOptions.add_argument('--log-timestamps',
+                          dest='log_timestamps',
+                          help="Print timestamps in logging output",
+                          action='store_true',
+                          default=False)
+
     args = parser.parse_args()
 
-    log("mlat-client {version} starting up", version=mlat.client.version.CLIENT_VERSION)
+    util.suppress_log_timestamps = not args.log_timestamps
+
+    util.log("mlat-client {version} starting up", version=mlat.client.version.CLIENT_VERSION)
 
     outputs = options.build_outputs(args)
 

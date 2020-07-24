@@ -24,8 +24,7 @@ import traceback
 __all__ = ('log', 'log_exc', 'monotonic_time')
 
 
-suppress_log_timestamps = False
-
+suppress_log_timestamps = True
 
 def log(msg, *args, **kwargs):
     if suppress_log_timestamps:
