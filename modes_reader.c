@@ -1421,6 +1421,10 @@ static int filter_message(modesreader *self, PyObject *o)
     if (self->outliers > 0)
         return 0;
 
+    // Ignore messages that jump backwards
+    if (self->last_timestamp > message->timestamp)
+        return 0;
+
     if (message->df == DF_MODEAC) {
         if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
             return PySequence_Contains(self->modeac_filter, message->address);
