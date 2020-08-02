@@ -329,7 +329,7 @@ class Coordinator:
     def received_timestamp_jump_event(self, message, now):
         self.recent_jumps += 1
         self.server.send_clock_jump()
-        #log("clockjump")
+        log("clockjump")
         if self.recent_jumps % 9 == 8 and time.monotonic() > self.last_jump_message + 300.0 :
             self.last_jump_message = time.monotonic()
             log("WARNING: the timestamps provided by your receiver do not seem to be self-consistent. "

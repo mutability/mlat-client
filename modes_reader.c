@@ -559,8 +559,8 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
         diff = (timestamp - self->last_timestamp);
 
     if (diff > 90 * self->frequency) {
-        //unsigned long long toms = self->frequency / 1000;
-        //fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms);
+        unsigned long long toms = self->frequency / 1000;
+        fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms);
         self->outliers++;
         return 0;
     }
