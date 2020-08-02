@@ -47,6 +47,8 @@ typedef struct {
     unsigned long long last_timestamp; /* last seen timestamp */
     unsigned int radarcape_utc_bugfix;
 
+    unsigned int outliers;
+
     /* configurable bits */
     char allow_mode_change;
     char want_zero_timestamps;
@@ -548,11 +550,21 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     if (self->frequency == 0)
         return 1;
 
-    if (self->last_timestamp > timestamp && (self->last_timestamp - timestamp) > 90 * self->frequency)
-        return 0;
+    unsigned long long diff = 0;
 
-    if (self->last_timestamp < timestamp && (timestamp - self->last_timestamp) > 90 * self->frequency)
+    if (self->last_timestamp > timestamp)
+        diff = (self->last_timestamp - timestamp);
+
+    if (self->last_timestamp < timestamp)
+        diff = (timestamp - self->last_timestamp);
+
+    if (diff > 90 * self->frequency) {
+        //unsigned long long toms = self->frequency / 1000;
+        //fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms);
+        self->outliers++;
         return 0;
+    }
+    self->outliers = 0;
 
     return 1;
 }
@@ -583,6 +595,10 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
          */
         return;
     }
+
+    // don't update the timestamp for a single outlier
+    if (self->outliers == 1)
+        return;
 
     self->last_timestamp = timestamp;
 }
@@ -746,7 +762,8 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
                  * also work around dump1090-mutability issue #47 which can send very stale Mode A/C messages
                  */
                 if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
-                    if (! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
+                    if (self->outliers != 1 &&
+                            ! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
                         goto out;
                 }
 
@@ -1399,6 +1416,10 @@ static int filter_message(modesreader *self, PyObject *o)
         ++self->mlat_messages;
         return 0;
     }
+
+    // Drop messages as long as timestamps are jumping.
+    if (self->outliers > 0)
+        return 0;
 
     if (message->df == DF_MODEAC) {
         if (self->modeac_filter != NULL && self->modeac_filter != Py_None) {
