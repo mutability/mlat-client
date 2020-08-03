@@ -17,6 +17,19 @@
  */
 
 #include "_modes.h"
+#include <stdlib.h>
+#include <sys/time.h>
+
+static unsigned long long monotic_ms(void) {
+    struct timespec ts;
+    unsigned long long mst;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    mst = ((unsigned long long) ts.tv_sec) * 1000;
+    mst += ts.tv_nsec / (1000 * 1000);
+    return mst;
+}
+
 
 /* decoder modes */
 typedef enum {
@@ -45,8 +58,13 @@ typedef struct {
     const char *epoch;
 
     unsigned long long last_timestamp; /* last seen timestamp */
+    unsigned long long last_ts_mono; /* system time associated with last timestamp */
+    unsigned long long monotonic; /* current monotonic time */
     unsigned int radarcape_utc_bugfix;
 
+    /* count timestamp outliers, first one is ignored / message discarded / last_timestamp not updated */
+    /* two consecutive outliers will result in sending a clock_reset message to the mlat-server (all sync dropped) */
+    /* a non outlier message will outliers to zero */
     unsigned int outliers;
 
     /* configurable bits */
@@ -233,6 +251,9 @@ static PyObject *modesreader_new(PyTypeObject *type, PyObject *args, PyObject *k
     /* minimal init */
     set_decoder_mode(self, DECODER_NONE);
     self->last_timestamp = 0;
+    self->last_ts_mono = 0;
+    self->monotonic = 0;
+    self->outliers = 0;
     self->allow_mode_change = 1;
     self->want_zero_timestamps = 0;
     self->want_mlat_messages = 0;
@@ -544,13 +565,16 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     if (is_synthetic_timestamp(timestamp))
         return 1;
 
-    if (self->last_timestamp == 0)
-        return 1;
-
     if (self->frequency == 0)
         return 1;
 
+    self->monotonic = monotic_ms(); // update system time
+
+    if (self->last_timestamp == 0)
+        return 1;
+
     unsigned long long diff = 0;
+    unsigned long long sys_elapsed = (self->monotonic - self->last_ts_mono) * (self->frequency / 1000);
 
     if (self->last_timestamp > timestamp)
         diff = (self->last_timestamp - timestamp);
@@ -558,9 +582,9 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     if (self->last_timestamp < timestamp)
         diff = (timestamp - self->last_timestamp);
 
-    if (diff > 90 * self->frequency) {
+    if (diff > 1 * self->frequency + sys_elapsed || diff + 1 * self->frequency < sys_elapsed) {
         unsigned long long toms = self->frequency / 1000;
-        fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms);
+        fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu, sys_elapsed: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms, sys_elapsed / toms);
         self->outliers++;
         return 0;
     }
@@ -579,6 +603,7 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
 
     if (self->last_timestamp == 0 || self->frequency == 0) {
         /* startup cases, just accept whatever */
+        self->last_ts_mono = self->monotonic;
         self->last_timestamp = timestamp;
         return;
     }
@@ -601,6 +626,7 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
         return;
 
     self->last_timestamp = timestamp;
+    self->last_ts_mono = self->monotonic;
 }
 
 /* feed implementation for Beast-format data (including Radarcape) */
