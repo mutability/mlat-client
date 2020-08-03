@@ -214,10 +214,12 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         return self.handle_server_line is not None
 
     def writable(self):
-        return self.connecting or self.writebuf or (self.fill_writebuf and self.linebuf)
+        return self.connecting or self.writebuf or (self.fill_writebuf and self.linebuf and self.coordinator.server_send)
+
 
     @mlat.profile.trackcpu
     def handle_write(self):
+        self.coordinator.server_send = 0
         if self.fill_writebuf:
             self.fill_writebuf()
 

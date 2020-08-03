@@ -87,6 +87,8 @@ class Coordinator:
         self.recent_jumps = 0
         self.last_jump_message = 0
 
+        self.server_send = 1
+
         receiver.coordinator = self
         server.coordinator = self
 
@@ -98,6 +100,7 @@ class Coordinator:
     def run_until(self, termination_condition):
         try:
             next_heartbeat = monotonic_time() + 0.5
+            next_server_send = monotonic_time()
             while not termination_condition():
                 # maybe there are no active sockets and
                 # we're just waiting on a timeout
@@ -110,6 +113,10 @@ class Coordinator:
                 if now >= next_heartbeat:
                     next_heartbeat = now + 0.5
                     self.heartbeat(now)
+
+                if now >= next_server_send:
+                    self.server_send = 1
+                    next_server_send = now + 0.25
 
         finally:
             self.receiver.disconnect('Client shutting down')
