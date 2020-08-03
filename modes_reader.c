@@ -583,8 +583,8 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
         diff = (timestamp - self->last_timestamp);
 
     if (diff > 1 * self->frequency + sys_elapsed || diff + 1 * self->frequency < sys_elapsed) {
-        unsigned long long toms = self->frequency / 1000;
-        fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu, sys_elapsed: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms, sys_elapsed / toms);
+        //unsigned long long toms = self->frequency / 1000;
+        //fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu, sys_elapsed: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms, sys_elapsed / toms);
         self->outliers++;
         return 0;
     }
