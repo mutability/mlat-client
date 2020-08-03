@@ -25,9 +25,12 @@ exec(open('mlat/client/version.py').read())
 
 more_warnings = False
 extra_compile_args = []
-if more_warnings and get_default_compiler() == 'unix':
-    # let's assume this is GCC
-    extra_compile_args.append('-Wpointer-arith')
+if get_default_compiler() == 'unix':
+    extra_compile_args.append('-O3')
+
+    if more_warnings:
+        # let's assume this is GCC
+        extra_compile_args.append('-Wpointer-arith')
 
 modes_ext = Extension('_modes',
                       sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'],
