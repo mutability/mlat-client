@@ -456,6 +456,12 @@ static int decode(modesmessage *self)
 
                 if (! (self->altitude = decode_ac12((self->data[5] << 4) | ((self->data[6] & 0xF0) >> 4))))
                     return -1;
+
+                // crude check if there is any CPR data, if either cpr_lat or cpr_lon is mostly zeros, set invalid
+                if ((self->data[7] == 0 && (self->data[8] & 0x7F) == 0) || (self->data[9] == 0 && self->data[10] == 0)) {
+                    self->valid = 0;
+                    //fprintf(stderr, "%02x %02x %02x %02x\n", self->data[7], self->data[8], self->data[9], self->data[10]);
+                }
             }
         }
         break;

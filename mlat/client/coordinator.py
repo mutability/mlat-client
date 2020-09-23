@@ -413,34 +413,33 @@ class Coordinator:
             # not a position message
             return
 
-        ac.last_position_time = now
+        if message.even_cpr:
+            ac.even_message = message
+        else:
+            ac.odd_message = message
+
+        if not ac.even_message or not ac.odd_message:
+            return
+        if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > 5 * self.freq:
+            return
 
         if message.altitude is None:
             return    # need an altitude
+
+        ac.last_position_time = now
+
         if message.nuc < 6:
             return    # need NUCp >= 6
 
         ac.recent_adsb_positions += 1
 
-        if self.server.send_split_sync:
-            if not ac.requested:
-                return
+        if not ac.requested:
+            return
 
+        if self.server.send_split_sync:
             # this is a useful reference message
             self.server.send_split_sync(message)
         else:
-            if message.even_cpr:
-                ac.even_message = message
-            else:
-                ac.odd_message = message
-
-            if not ac.requested:
-                return
-            if not ac.even_message or not ac.odd_message:
-                return
-            if abs(ac.even_message.timestamp - ac.odd_message.timestamp) > 5 * self.freq:
-                return
-
             # this is a useful reference message pair
             self.server.send_sync(ac.even_message, ac.odd_message)
 
