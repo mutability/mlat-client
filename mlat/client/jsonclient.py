@@ -175,7 +175,7 @@ class UdpServerConnection:
 
 
 class JsonServerConnection(mlat.client.net.ReconnectingConnection):
-    reconnect_interval = 30.0
+    reconnect_interval = 15.0
     heartbeat_interval = 120.0
     inactivity_timeout = 60.0
 
