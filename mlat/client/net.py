@@ -46,6 +46,8 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     host/port, reconnecting on connection loss.
     """
 
+    reconnect_interval = 15.0
+
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
         self.host = host
