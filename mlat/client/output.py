@@ -173,6 +173,10 @@ class BasicConnection(LoggingMixin, asyncore.dispatcher):
         self.addr = addr
         self.writebuf = bytearray()
 
+    @staticmethod
+    def describe():
+        return 'Basic connection'
+
     def log(self, fmt, *args, **kwargs):
         log('{what} with {addr[0]}:{addr[1]}: ' + fmt, *args, what=self.describe(), addr=self.addr, **kwargs)
 
