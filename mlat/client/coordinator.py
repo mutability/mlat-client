@@ -36,7 +36,9 @@ class Aircraft:
         self.icao = icao
         self.messages = 0
         self.last_message_time = 0
-        self.last_position_time = 0
+        self.last_even_time = 0
+        self.last_odd_time = 0
+        self.adsb_good = False
         self.even_message = None
         self.odd_message = None
         self.reported = False
@@ -51,7 +53,7 @@ class Coordinator:
     report_interval = 30.0
     stats_interval = 900.0
     position_expiry_age = 30.0
-    expiry_age = 60.0
+    expiry_age = 120.0
 
     def __init__(self, receiver, server, outputs, freq, allow_anon, allow_modeac):
         self.receiver = receiver
@@ -81,7 +83,7 @@ class Coordinator:
             _modes.DF_MODEAC: self.received_modeac
         }
         self.next_report = None
-        self.next_stats = monotonic_time() + self.stats_interval
+        self.next_stats = monotonic_time() + 60
         self.next_profile = monotonic_time()
         self.next_aircraft_update = self.last_aircraft_update = monotonic_time()
         self.recent_jumps = 0
@@ -167,6 +169,11 @@ class Coordinator:
                 ac.messages += 1
                 ac.last_message_time = now
 
+            if now - ac.last_even_time < self.position_expiry_age and now - ac.last_odd_time < self.position_expiry_age:
+                ac.adsb_good = True
+            else:
+                ac.adsb_good = False
+
         # expire aircraft we have not seen for a while
         for ac in list(self.aircraft.values()):
             if (now - ac.last_message_time) > self.expiry_age:
@@ -211,7 +218,7 @@ class Coordinator:
             if ac.messages < 2:
                 continue
 
-            if now - ac.last_position_time < self.position_expiry_age:
+            if ac.adsb_good:
                 adsb_total += 1
                 if ac.requested:
                     adsb_req += 1
@@ -288,7 +295,7 @@ class Coordinator:
         mlat = set()
         for icao in self.requested_traffic:
             ac = self.aircraft.get(icao)
-            if not ac or (now - ac.last_position_time > self.position_expiry_age):
+            if not ac or not ac.adsb_good:
                 # requested, and we have not seen a recent ADS-B message from it
                 mlat.add(icao)
 
@@ -365,7 +372,7 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < self.position_expiry_age:
+        if ac.adsb_good:
             return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
@@ -389,7 +396,7 @@ class Coordinator:
             return
 
         # Candidate for MLAT
-        if now - ac.last_position_time < self.position_expiry_age:
+        if ac.adsb_good:
             return   # reported position recently, no need for mlat
         self.server.send_mlat(message)
 
@@ -413,6 +420,10 @@ class Coordinator:
             # not a position message
             return
 
+        if not message.valid:
+            # invalid message
+            return
+
         if message.even_cpr:
             ac.even_message = message
         else:
@@ -426,12 +437,20 @@ class Coordinator:
         if message.altitude is None:
             return    # need an altitude
 
-        ac.last_position_time = now
-
         if message.nuc < 6:
             return    # need NUCp >= 6
 
         ac.recent_adsb_positions += 1
+
+        if message.even_cpr:
+            ac.last_even_time = now
+        else:
+            ac.last_odd_time = now
+
+        if now - ac.last_even_time < self.position_expiry_age and now - ac.last_odd_time < self.position_expiry_age:
+            ac.adsb_good = True
+        else:
+            ac.adsb_good = False
 
         if not ac.requested:
             return
