@@ -490,10 +490,10 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         else:
             self.send_split_sync = None
 
-        log('Handshake complete.')
-        log('  Compression:       {0}', compress)
-        log('  UDP transport:     {0}', self.udp_transport and str(self.udp_transport) or 'disabled')
-        log('  Split sync:        {0}', self.send_split_sync and 'enabled' or 'disabled')
+        log('Handshake complete: Compression {0}, UDP transport {1}, Split sync {2}',
+                compress,
+                self.udp_transport and str(self.udp_transport) or 'disabled',
+                self.send_split_sync and 'enabled' or 'disabled')
 
         self.state = 'ready'
         self.handle_server_line = self.handle_connected_request

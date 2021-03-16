@@ -208,9 +208,7 @@ class Coordinator:
             self.server.send_rate_report(rate_report)
 
     def periodic_stats(self, now):
-        log('Receiver status: {0}', self.receiver.state)
-        log('Server status:   {0}', self.server.state)
-        global_stats.log_and_reset()
+        global_stats.log_and_reset(self)
 
         adsb_req = adsb_total = modes_req = modes_total = 0
         now = monotonic_time()
