@@ -396,7 +396,7 @@ static int decode(modesmessage *self)
     }
 
     if (self->df != 0 && self->df != 4 && self->df != 5 && self->df != 11 &&
-        self->df != 16 && self->df != 17 && self->df != 18 && self->df != 20 && self->df != 21) {
+        self->df != 16 && self->df != 17 && self->df != 20 && self->df != 21) {
         /* we do not know how to handle this message type, no further processing */
         return 0;
     }
@@ -432,7 +432,6 @@ static int decode(modesmessage *self)
         break;
 
     case 17:
-    case 18:
         self->valid = (crc == 0);
         if (self->valid) {
             unsigned metype;
