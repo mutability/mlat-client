@@ -539,14 +539,18 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                 callsign = result['callsign']
                 squawk = result['squawk']
 
+            nsvel = result.get('nsvel')
+            ewvel = result.get('ewvel')
+            vrate = result.get('vrate')
+
             self.coordinator.server_mlat_result(timestamp=result['@'],
                                                 addr=int(result['addr'], 16),
                                                 lat=lat,
                                                 lon=lon,
                                                 alt=alt,
-                                                nsvel=None,
-                                                ewvel=None,
-                                                vrate=None,
+                                                nsvel=nsvel,
+                                                ewvel=ewvel,
+                                                vrate=vrate,
                                                 callsign=callsign,
                                                 squawk=squawk,
                                                 error_est=error_est,
