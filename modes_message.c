@@ -436,7 +436,9 @@ static int decode(modesmessage *self)
         if (self->valid) {
             unsigned metype;
 
-            if (! (self->address = PyLong_FromLong( (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]) )))
+            unsigned address = (self->data[1] << 16) | (self->data[2] << 8) | (self->data[3]);
+            self->address = PyLong_FromLong(address);
+            if (!self->address)
                 return -1;
 
             metype = self->data[4] >> 3;
@@ -447,6 +449,10 @@ static int decode(modesmessage *self)
                     self->nuc = 18 - metype;
                 else
                     self->nuc = 29 - metype;
+
+                if (0 && self->nuc <= 5) {
+                    fprintf(stderr, "%06x nuc: %d\n", address, self->nuc);
+                }
 
                 if (self->data[6] & 0x04)
                     self->odd_cpr = 1;
@@ -459,7 +465,10 @@ static int decode(modesmessage *self)
                 // crude check if there is any CPR data, if either cpr_lat or cpr_lon is mostly zeros, set invalid
                 if ((self->data[7] == 0 && (self->data[8] & 0x7F) == 0) || (self->data[9] == 0 && self->data[10] == 0)) {
                     self->valid = 0;
-                    //fprintf(stderr, "%02x %02x %02x %02x\n", self->data[7], self->data[8], self->data[9], self->data[10]);
+                    if (0) {
+                        fprintf(stderr, "%06x %02x %02x %02x %02x\n",
+                                address, self->data[7], self->data[8], self->data[9], self->data[10]);
+                    }
                 }
             }
         }

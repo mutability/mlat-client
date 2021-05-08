@@ -435,8 +435,8 @@ class Coordinator:
         if message.altitude is None:
             return    # need an altitude
 
-        if message.nuc < 6:
-            return    # need NUCp >= 6
+        if message.nuc < 5:
+            return    # need NUCp >= 5
 
         ac.recent_adsb_positions += 1
 
