@@ -28,6 +28,8 @@ import mlat.profile
 from mlat.client.util import monotonic_time, log
 from mlat.client.stats import global_stats
 
+import random
+random.seed()
 
 class Aircraft:
     """One tracked aircraft."""
@@ -49,8 +51,8 @@ class Aircraft:
 
 
 class Coordinator:
-    update_interval = 5.0
-    report_interval = 30.0
+    update_interval = 4.5
+    report_interval = 4.0 # in multiples update_interval
     stats_interval = 900.0
     position_expiry_age = 30.0
     expiry_age = 120.0
@@ -137,15 +139,18 @@ class Coordinator:
             mlat.profile.dump_cpu_profiles()
 
         if now >= self.next_aircraft_update:
-            self.next_aircraft_update = now + self.update_interval
+            self.next_aircraft_update = now + self.update_interval + random.random()
             self.update_aircraft(now)
 
             # piggyback reporting on regular updates
             # as the reporting uses data produced by the update
-            if self.next_report and now >= self.next_report:
-                self.next_report = now + self.report_interval
-                self.send_aircraft_report()
-                self.send_rate_report(now)
+            if self.next_report is not None:
+                self.next_report += 1.0
+                if self.next_report >= self.report_interval:
+                    #global_stats.log_and_reset(self)
+                    self.next_report = 0.0
+                    self.send_aircraft_report()
+                    self.send_rate_report(now)
 
         if now >= self.next_stats:
             self.next_stats = now + self.stats_interval
@@ -243,7 +248,7 @@ class Coordinator:
         self.newly_seen = set()
         self.aircraft = {}
         self.reported = set()
-        self.next_report = monotonic_time() + self.report_interval / 2
+        self.next_report = random.random() * self.report_interval
         if self.receiver.state != 'ready':
             self.receiver.reconnect()
 

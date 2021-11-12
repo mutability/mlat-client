@@ -25,6 +25,8 @@ import socket
 import asyncore
 from mlat.client.util import log, log_exc, monotonic_time
 
+import random
+random.seed()
 
 __all__ = ('LoggingMixin', 'ReconnectingConnection')
 
@@ -46,7 +48,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     host/port, reconnecting on connection loss.
     """
 
-    reconnect_interval = 15.0
+    reconnect_interval = 10.0
 
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
@@ -106,9 +108,9 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
                 # socket and discard the events.
                 interval = 0.5
             else:
-                interval = self.reconnect_interval
+                interval = self.reconnect_interval + 5 * random.random()
 
-            log('Reconnecting in {0} seconds', interval)
+            log('Reconnecting in {seconds:.1f} seconds'.format(seconds=interval))
             self.reconnect_at = monotonic_time() + interval
 
     def refresh_address_list(self):
