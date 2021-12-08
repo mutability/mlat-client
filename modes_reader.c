@@ -46,6 +46,8 @@ typedef enum {
  * multilateration result. (FF 00 "MLAT")
  */
 #define MAGIC_MLAT_TIMESTAMP 0xFF004D4C4154ULL
+#define MAGIC_UAT_TIMESTAMP  0xFF004D4C4155ULL
+#define OUTLIER_LIMIT 1
 
 /* a modesreader object */
 typedef struct {
@@ -556,7 +558,7 @@ static PyObject *make_radarcape_position_event(modesreader *self, uint8_t *data)
 
 static int is_synthetic_timestamp(unsigned long long timestamp)
 {
-    return (timestamp == 0 || timestamp == MAGIC_MLAT_TIMESTAMP);
+    return (timestamp == 0 || (timestamp >= MAGIC_MLAT_TIMESTAMP && timestamp <= MAGIC_MLAT_TIMESTAMP + 10));
 }
 
 /* check if the given timestamp is in range (not a jump), return 1 if it is */
@@ -573,18 +575,16 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     if (self->last_timestamp == 0)
         return 1;
 
-    unsigned long long diff = 0;
-    unsigned long long sys_elapsed = (self->monotonic - self->last_ts_mono) * (self->frequency / 1000);
 
-    if (self->last_timestamp > timestamp)
-        diff = (self->last_timestamp - timestamp);
+    long long ts_elapsed = (long long) timestamp - (long long) self->last_timestamp;
+    long long sys_elapsed = (self->monotonic - self->last_ts_mono) * (self->frequency / 1000);
+    long long max_offset = 1.25 * self->frequency; // 1.25 seconds
 
-    if (self->last_timestamp < timestamp)
-        diff = (timestamp - self->last_timestamp);
-
-    if (diff > 1.25 * self->frequency + sys_elapsed || diff + 1.25 * self->frequency < sys_elapsed) {
-        //unsigned long long toms = self->frequency / 1000;
-        //fprintf(stderr, "diff: %llu, ts: %llu, last_ts: %llu, sys_elapsed: %llu\n", diff / toms, timestamp / toms, self->last_timestamp / toms, sys_elapsed / toms);
+    if (ts_elapsed > sys_elapsed + max_offset || ts_elapsed < sys_elapsed - max_offset) {
+        if (self->outliers == 0) {
+            double tosec = 1.0 / self->frequency;
+            fprintf(stderr, "outlier detected with ts: %.3f, last_ts: %.3f, ts_elapsed: %.3f, sys_elapsed: %.3f (values in seconds)\n", timestamp * tosec, self->last_timestamp * tosec, ts_elapsed * tosec, sys_elapsed * tosec);
+        }
         self->outliers++;
         return 0;
     }
@@ -621,8 +621,8 @@ static void timestamp_update(modesreader *self, unsigned long long timestamp)
         return;
     }
 
-    // don't update the timestamp for a single outlier
-    if (self->outliers == 1)
+    // don't update the timestamp for outliers until we exceed OUTLIER_LIMIT
+    if (self->outliers && self->outliers <= OUTLIER_LIMIT)
         return;
 
     self->last_timestamp = timestamp;
@@ -788,7 +788,7 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
                  * also work around dump1090-mutability issue #47 which can send very stale Mode A/C messages
                  */
                 if (self->want_events && type != '1' && !timestamp_check(self, timestamp)) {
-                    if (self->outliers != 1 &&
+                    if (self->outliers > OUTLIER_LIMIT &&
                             ! (messages[message_count++] = make_timestamp_jump_event(self, timestamp)))
                         goto out;
                 }
