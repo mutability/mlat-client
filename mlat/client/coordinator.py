@@ -336,7 +336,6 @@ class Coordinator:
         lat, lon = message.eventdata['lat'], message.eventdata['lon']
         if lat >= -90 and lat <= 90 and lon >= -180 and lon <= 180:
             self.server.send_position_update(lat, lon,
-                                             message.eventdata['lon'],
                                              message.eventdata['alt'],
                                              'egm96_meters')
 
