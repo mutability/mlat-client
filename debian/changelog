@@ -1,9 +1,9 @@
-mlat-client (0.2.12) UNRELEASED; urgency=medium
+mlat-client (0.2.12) stable; urgency=medium
 
   * Treat a wider range of timestamps as synthetic
   * Fix radarcape position sanity check (broken for 2+ years!)
 
- -- Oliver Jowett <oliver.jowett@flightaware.com>  Wed, 08 Dec 2021 20:48:14 +0800
+ -- Oliver Jowett <oliver.jowett@flightaware.com>  Mon, 20 Dec 2021 14:25:08 +0800
 
 mlat-client (0.2.11) stable; urgency=medium
 
