@@ -581,11 +581,11 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     long long max_offset = 1.25 * self->frequency; // 1.25 seconds
 
     if (ts_elapsed > sys_elapsed + max_offset || ts_elapsed < sys_elapsed - max_offset) {
-        if (self->outliers == 0) {
+        self->outliers++;
+        if (self->outliers > OUTLIER_LIMIT) {
             double tosec = 1.0 / self->frequency;
             fprintf(stderr, "outlier detected with ts: %.3f, last_ts: %.3f, ts_elapsed: %.3f, sys_elapsed: %.3f (values in seconds)\n", timestamp * tosec, self->last_timestamp * tosec, ts_elapsed * tosec, sys_elapsed * tosec);
         }
-        self->outliers++;
         return 0;
     }
     self->outliers = 0;
