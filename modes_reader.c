@@ -779,6 +779,13 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
             }
         }
 
+        // ignore ModeAC messages
+        if (type == '1') {
+            /* don't try to process this as a Mode S message */
+            p = m;
+            continue;
+        }
+
         if (has_timestamp_signal && !is_synthetic_timestamp(timestamp)) {
             if (self->decoder_mode == DECODER_BEAST) {
                 /* 12MHz mode */
