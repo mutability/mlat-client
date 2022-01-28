@@ -20,6 +20,7 @@
 import argparse
 
 import mlat.client.version
+import time
 
 from mlat.client import util
 from mlat.client.receiver import ReceiverConnection
@@ -81,6 +82,11 @@ location pin from the coverage maps.""",
     args = parser.parse_args()
 
     util.suppress_log_timestamps = not args.log_timestamps
+
+    if args.lat < 0.1 and args.lon < 0.1:
+        util.log("<3>Latitude / Longitude not set, please configure and reboot")
+        time.sleep(3600)
+        raise SystemExit
 
     util.log("mlat-client {version} starting up", version=mlat.client.version.CLIENT_VERSION)
 

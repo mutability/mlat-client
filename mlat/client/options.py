@@ -19,6 +19,7 @@
 
 import argparse
 import functools
+import time
 
 import _modes
 from mlat.client.receiver import ReceiverConnection
@@ -71,6 +72,11 @@ def altitude(s):
     # "The lowest point on dry land is the shore of the Dead Sea [...]
     # 418m below sea level". Perhaps not the best spot for a receiver?
     # La Rinconada, Peru, pop. 30,000, is at 5100m.
+    if s == '60440ft':
+        log('<3>Altitude not configured, please configure and reboot')
+        time.sleep(3600)
+        raise SystemExit
+
     if alt < -420 or alt > 5100:
         raise argparse.ArgumentTypeError('Altitude %s must be in the range -420m to 6000m' % s)
     return alt
