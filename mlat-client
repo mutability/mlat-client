@@ -71,6 +71,10 @@ location pin from the coverage maps.""",
                         help="Don't offer to use UDP transport for sync/mlat messages",
                         action='store_false',
                         default=True)
+    server.add_argument('--uuid-file',
+                        dest='uuid_path',
+                        help="Send the UUID in this file to the server",
+                        required=False)
 
     logOptions = parser.add_argument_group('Log Options')
     logOptions.add_argument('--log-timestamps',
@@ -94,7 +98,13 @@ location pin from the coverage maps.""",
 
     receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
                                   mode=options.connection_mode(args))
-    server = JsonServerConnection(host=args.server[0], port=args.server[1],
+
+    if args.uuid_path is not None:
+        uuid_path = args.uuid_path
+    else:
+        uuid_path = '/boot/adsbx-uuid'
+
+    server = JsonServerConnection(host=args.server[0], port=args.server[1], uuid_path=uuid_path,
                                   handshake_data={'lat': args.lat,
                                                   'lon': args.lon,
                                                   'alt': args.alt,

@@ -179,8 +179,9 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     heartbeat_interval = 120.0
     inactivity_timeout = 60.0
 
-    def __init__(self, host, port, handshake_data, offer_zlib, offer_udp, return_results):
+    def __init__(self, host, port, uuid_path, handshake_data, offer_zlib, offer_udp, return_results):
         super().__init__(host, port)
+        self.uuid_path = uuid_path
         self.handshake_data = handshake_data
         self.offer_zlib = offer_zlib
         self.offer_udp = offer_udp
@@ -343,7 +344,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
 
         uuid = None
         try:
-            with open('/boot/adsbx-uuid') as file:
+            with open(self.uuid_path) as file:
                 uuid = file.readline().rstrip('\n')
         except Exception:
             pass
