@@ -100,9 +100,9 @@ location pin from the coverage maps.""",
                                   mode=options.connection_mode(args))
 
     if args.uuid_path is not None:
-        uuid_path = args.uuid_path
+        uuid_path = [ args.uuid_path ]
     else:
-        uuid_path = '/boot/adsbx-uuid'
+        uuid_path = [ '/usr/local/share/adsbexchange/adsbx-uuid', '/boot/adsbx-uuid' ]
 
     server = JsonServerConnection(host=args.server[0], port=args.server[1], uuid_path=uuid_path,
                                   handshake_data={'lat': args.lat,

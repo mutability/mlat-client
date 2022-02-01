@@ -343,11 +343,13 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             compress_methods.append('zlib2')
 
         uuid = None
-        try:
-            with open(self.uuid_path) as file:
-                uuid = file.readline().rstrip('\n')
-        except Exception:
-            pass
+        for path in self.uuid_path:
+            try:
+                with open(path) as file:
+                    uuid = file.readline().rstrip('\n')
+                break
+            except Exception:
+                pass
 
         handshake_msg = {'version': 3,
                          'client_version': mlat.client.version.CLIENT_VERSION,
