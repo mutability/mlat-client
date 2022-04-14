@@ -98,6 +98,10 @@ class OutputConnector:
         self.next_reconnect = monotonic_time()
         self.addrlist = []
 
+    @staticmethod
+    def describe():
+        return 'OutputConnector'
+
     def log(self, fmt, *args, **kwargs):
         log('{what} with {host}:{port}: ' + fmt,
             *args,
