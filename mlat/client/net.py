@@ -55,9 +55,14 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         self.host = host
         self.basePort = port
         self.port = port
+        if self.host == 'feed.adsbexchange.com':
+            self.adsbexchange = True
+        else:
+            self.adsbexchange = False
+        self.adsbexchangePortIndex = 0
+        self.adsbexchangeHostIndex = 0
         self.adsbexchangePorts = [ 31090, 64590 ]
-        if self.host == 'feed.adsbexchange.com' and self.basePort == 31090:
-            self.port = 64590
+        self.adsbexchangeHosts = [ 'feed1.adsbexchange.com', 'feed2.adsbexchange.com' ]
         self.addrlist = []
         self.state = 'disconnected'
         self.reconnect_at = None
@@ -125,16 +130,11 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 
             if len(self.addrlist) == 0:
                 # ran out of addresses to try, resolve it again
-                if self.host == 'feed.adsbexchange.com' and self.basePort == 31090:
-                    for index, port in enumerate(self.adsbexchangePorts):
-                        if self.port == port:
-                            self.port = self.adsbexchangePorts[(index + 1) % len(self.adsbexchangePorts)]
-                            break
-
-                #if self.host == 'feed.adsbexchange.com' and self.basePort != self.port:
-                #    log('Connecting to {host}:{port} (trying hard-coded alternate port for adsbexchange)', host=self.host, port=self.port)
-                #else:
-                #    log('Connecting to {host}:{port}', host=self.host, port=self.port)
+                if self.adsbexchange:
+                    self.adsbexchangePortIndex  = (self.adsbexchangePortIndex + 1) % len(self.adsbexchangePorts)
+                    self.adsbexchangeHostIndex  = (self.adsbexchangeHostIndex + 1) % len(self.adsbexchangeHosts)
+                    self.host = self.adsbexchangeHosts[self.adsbexchangeHostIndex];
+                    self.port = self.adsbexchangePorts[self.adsbexchangePortIndex];
 
                 self.addrlist = socket.getaddrinfo(host=self.host,
                                                    port=self.port,
