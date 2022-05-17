@@ -53,9 +53,9 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
     def __init__(self, host, port):
         asyncore.dispatcher.__init__(self)
         self.host = host
-        self.basePort = port
         self.port = port
-        if self.host == 'feed.adsbexchange.com':
+        # check port as well, if port doesn't match, could be direct MLAT
+        if self.host == 'feed.adsbexchange.com' and port == 31090:
             self.adsbexchange = True
         else:
             self.adsbexchange = False
