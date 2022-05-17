@@ -16,16 +16,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from setuptools import setup, Extension
-import platform
+from distutils.core import setup, Extension
+from distutils.ccompiler import get_default_compiler
 
 # get the version from the source
 CLIENT_VERSION = "unknown"
 exec(open('mlat/client/version.py').read())
 
+more_warnings = False
 extra_compile_args = []
-if platform.system() == 'Linux':
+if get_default_compiler() == 'unix':
     extra_compile_args.append('-O3')
+
+    if more_warnings:
+        # let's assume this is GCC
+        extra_compile_args.append('-Wpointer-arith')
 
 modes_ext = Extension('_modes',
                       sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'],
