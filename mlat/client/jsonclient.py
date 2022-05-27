@@ -359,6 +359,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                          'return_results': self.return_results,
                          'udp_transport': 2 if self.offer_udp else False,
                          'return_result_format': 'ecef',
+                         'return_stats': True,
                          'uuid': uuid}
         handshake_msg.update(self.handshake_data)
         if DEBUG:
@@ -560,5 +561,10 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                                                 nstations=nstations,
                                                 anon=False,
                                                 modeac=False)
+        elif 'stats' in request:
+            stats = request['stats']
+            if stats.get('bad_sync_timeout', 0) > 0 or self.coordinator.print_server_statistics:
+                log(f'peer_count: {stats.get("peer_count"):3.0f} outlier_percent: {stats.get("outlier_percent")} bad_sync_timeout: {stats.get("bad_sync_timeout")}')
+                self.coordinator.print_server_statistics = False
         else:
             log('ignoring request from server: {0}', request)

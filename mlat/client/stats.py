@@ -47,6 +47,8 @@ class Stats:
         #log('Receiver status: {0}', coordinator.receiver.state)
         #log('Server status:   {0}', coordinator.server.state)
 
+        coordinator.print_server_statistics = True
+
         processed = self.receiver_rx_messages - self.receiver_rx_filtered
         log('Receiver: {3:10s} {0:6.1f} msg/s received     {1:6.1f} msg/s processed ({2:.0f}%)',
             self.receiver_rx_messages / elapsed,

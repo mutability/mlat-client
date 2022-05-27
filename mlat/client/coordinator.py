@@ -96,6 +96,8 @@ class Coordinator:
         receiver.coordinator = self
         server.coordinator = self
 
+        self.print_server_statistics = False
+
     # internals
 
     def run_forever(self):
