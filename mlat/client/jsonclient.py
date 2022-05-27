@@ -564,7 +564,8 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         elif 'stats' in request:
             stats = request['stats']
             if stats.get('bad_sync_timeout', 0) > 0 or self.coordinator.print_server_statistics:
-                log(f'peer_count: {stats.get("peer_count"):3.0f} outlier_percent: {stats.get("outlier_percent")} bad_sync_timeout: {stats.get("bad_sync_timeout")}')
+                log('peer_count: {0:3.0f} outlier_percent: {1:2.1f} bad_sync_timeout: {2:3.0f}',
+                        stats.get("peer_count"), stats.get("outlier_percent"), stats.get("bad_sync_timeout"))
                 self.coordinator.print_server_statistics = False
         else:
             log('ignoring request from server: {0}', request)
