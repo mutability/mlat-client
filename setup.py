@@ -16,8 +16,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from distutils.core import setup, Extension
-from distutils.ccompiler import get_default_compiler
+import sys
+
+# setuptools with python 3.9 is buggy or something
+# only use setuptools for 3.10 and up as distutils is deprecated 3.12 and up
+
+if sys.version_info.minor >= 10:
+    from setuptools import setup, Extension
+else:
+    from distutils.core import setup, Extension
+
+import platform
 
 # get the version from the source
 CLIENT_VERSION = "unknown"
@@ -25,7 +34,7 @@ exec(open('mlat/client/version.py').read())
 
 more_warnings = False
 extra_compile_args = []
-if get_default_compiler() == 'unix':
+if platform.system() == 'Linux':
     extra_compile_args.append('-O3')
 
     if more_warnings:
