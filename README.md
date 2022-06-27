@@ -5,27 +5,29 @@ server that resolves the transmitter position by multilateration of the same
 message received by multiple clients.
 
 The corresponding server code is available at
-https://github.com/mutability/mlat-server.
-
-There is also support for running in a mode used to feed multilateration
-information to FlightAware via piaware. In this mode, the client is started
-automatically by piaware.
+https://github.com/adsbexchange/mlat-server.
 
 ## Building
 
-To build a Debian (or Ubuntu, Raspbian, etc) package that includes config
-and startup scripts:
+Due to conflicting packages with the same name, it's recommended to install in a Python virtual environment.
+First set the direcory you'd like to install to, if that path is not writeable by your user, use `sudo su` to become root first.
+```
+VENV=/usr/local/share/adsbexchange/venv
+```
+Now the build / install, it's not a bad idea to recreate the virtual environment when rebuilding:
+```
+rm -rf "$VENV"
+python3 -m venv "$VENV"
+source "$VENV/bin/activate"
+python3 setup.py build
+python3 setup.py install
+```
 
-    $ sudo apt-get install build-essential debhelper python3-dev
-    $ dpkg-buildpackage -b -uc
+To run it, invoke:
+```
+/usr/local/share/adsbexchange/venv/bin/mlat-client
+```
 
-This will build a .deb package in the parent directory. Install it with dpkg:
-
-    $ sudo dpkg -i ../mlat-client_(version)_(architecture).deb
-
-To build/install on other systems using setuptools (client only):
-
-    $ ./setup.py install
 
 ## Running
 
@@ -39,11 +41,9 @@ server's administrator for configuration instructions.
 ## Supported receivers
 
 * Anything that produces Beast-format output with a 12MHz clock:
- * dump1090_mr, dump1090-mutability, FlightAware's dump1090
- * modesdeco (probably?)
+ * readsb, dump1090-mutability, dump1090-fa
  * an actual Mode-S Beast
  * airspy_adsb in Beast output mode
-* SBS receivers
 * Radarcape in 12MHz mode
 * Radarcape in GPS mode
 
