@@ -38,7 +38,7 @@ _receiver_types = {
     'beast':           (_modes.BEAST,     'beast'),
     'radarcape_12mhz': (_modes.BEAST,     'radarcape_12mhz'),  # compat
     'radarcape_gps':   (_modes.RADARCAPE, 'radarcape_gps'),    # compat
-    'radarcape':       (_modes.BEAST,     'radarcape'),        # autodetects gps if present
+    'radarcape':       (_modes.RADARCAPE, 'radarcape_gps'),    # autodetects gps if present (doesn't work with intermediary decoder between mlat-cleint and radarcape, assume radarcape_gps)
     'sbs':             (_modes.SBS,       'sbs'),
     'avrmlat':         (_modes.AVRMLAT,   'unknown'),
 }
