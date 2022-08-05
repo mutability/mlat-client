@@ -68,6 +68,9 @@ typedef struct {
     /* two consecutive outliers will result in sending a clock_reset message to the mlat-server (all sync dropped) */
     /* a non outlier message will outliers to zero */
     unsigned int outliers;
+    unsigned long long outlierNoSpam;
+    unsigned int outlier_accumulator;
+    int try_toggle_freq;
 
     /* configurable bits */
     char allow_mode_change;
@@ -583,8 +586,23 @@ static int timestamp_check(modesreader *self, unsigned long long timestamp)
     if (ts_elapsed > sys_elapsed + max_offset || ts_elapsed < sys_elapsed - max_offset) {
         self->outliers++;
         if (self->outliers > OUTLIER_LIMIT) {
-            double tosec = 1.0 / self->frequency;
-            fprintf(stderr, "outlier detected with ts: %.3f, last_ts: %.3f, ts_elapsed: %.3f, sys_elapsed: %.3f (values in seconds)\n", timestamp * tosec, self->last_timestamp * tosec, ts_elapsed * tosec, sys_elapsed * tosec);
+            if (self->monotonic > self->outlierNoSpam) {
+                double tosec = 1.0 / self->frequency;
+                fprintf(stderr, "outlier detected with ts: %.3f, last_ts: %.3f, ts_elapsed: %.3f, sys_elapsed: %.3f (values in seconds)\n", timestamp * tosec, self->last_timestamp * tosec, ts_elapsed * tosec, sys_elapsed * tosec);
+
+                self->outlier_accumulator = 0;
+                self->outlierNoSpam = self->monotonic + 5000;
+            } else {
+                self->outlier_accumulator++;
+                if (self->outlier_accumulator > 100) {
+                    // try switching to another input type
+
+                    // disable frequency toggling ... bad idea
+                    //self->try_toggle_freq++;
+
+                    self->outlier_accumulator = 0;
+                }
+            }
         }
         return 0;
     }
@@ -775,6 +793,28 @@ static PyObject *feed_beast(modesreader *self, Py_buffer *buffer, int max_messag
                         if (! (messages[message_count++] = make_mode_change_event(self)))
                         goto out;
                     }
+                }
+            }
+        }
+
+        // hacky: toggle mode if self->try_toggle_freq was set in a function
+        if (self->try_toggle_freq > 0) {
+            self->try_toggle_freq = -5;
+
+            decoder_mode newmode = DECODER_NONE;
+
+            if (self->decoder_mode == DECODER_BEAST) {
+                newmode = DECODER_RADARCAPE;
+            }
+            if (self->decoder_mode == DECODER_RADARCAPE) {
+                newmode = DECODER_BEAST;
+            }
+
+            if (newmode != DECODER_NONE) {
+                set_decoder_mode(self, newmode);
+                if (self->want_events) {
+                    if (! (messages[message_count++] = make_mode_change_event(self)))
+                        goto out;
                 }
             }
         }

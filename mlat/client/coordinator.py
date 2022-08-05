@@ -353,7 +353,8 @@ class Coordinator:
             self.last_jump_message = time.monotonic()
             log("WARNING: the timestamps provided by your receiver do not seem to be self-consistent. "
                 "This can happen if you feed data from multiple receivers to a single mlat-client, which "
-                "is not supported; use a separate mlat-client for each receiver.")
+                "is not supported; use a separate mlat-client for each receiver. "
+                "Or you might have the wrong --input-type set, try radarcape_gps and dump1090.")
 
     def received_radarcape_position_event(self, message, now):
         lat, lon = message.eventdata['lat'], message.eventdata['lon']
