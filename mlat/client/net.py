@@ -66,6 +66,7 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         self.addrlist = []
         self.state = 'disconnected'
         self.reconnect_at = None
+        self.last_try = 0
 
     def heartbeat(self, now):
         if self.reconnect_at is None or self.reconnect_at > now:
@@ -103,6 +104,8 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
 
     def schedule_reconnect(self):
         if self.reconnect_at is None:
+            mono = monotonic_time()
+
             if len(self.addrlist) > 0:
                 # we still have more addresses to try
                 # nb: asyncore breaks in odd ways if you try
@@ -113,10 +116,14 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
                 # socket and discard the events.
                 interval = 0.5
             else:
-                interval = self.reconnect_interval + 5 * random.random()
+
+                interval = self.last_try + self.reconnect_interval - mono + 2 * random.random()
+
+                if interval < 4:
+                    interval = 2 + 2 * random.random()
 
             log('Reconnecting in {seconds:.1f} seconds'.format(seconds=interval))
-            self.reconnect_at = monotonic_time() + interval
+            self.reconnect_at = mono + interval
 
     def refresh_address_list(self):
         self.address
@@ -125,8 +132,10 @@ class ReconnectingConnection(LoggingMixin, asyncore.dispatcher):
         if self.state != 'disconnected':
             self.disconnect('About to reconnect')
 
+        self.last_try = monotonic_time()
         try:
             self.reset_connection()
+
 
             if len(self.addrlist) == 0:
                 # ran out of addresses to try, resolve it again
