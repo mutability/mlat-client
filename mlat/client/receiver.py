@@ -36,7 +36,7 @@ class ReceiverConnection(ReconnectingConnection):
     def __init__(self, host, port, mode):
         ReconnectingConnection.__init__(self, host, port)
         self.coordinator = None
-        self.last_data_received = None
+        self.last_data_received = monotonic_time()
         self.mode = mode
 
         # set up filters

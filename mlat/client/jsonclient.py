@@ -393,6 +393,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             raise
 
         if not moredata:
+            log("handle_read: moredata is falsy, reconnecting")
             self.close()
             self.schedule_reconnect()
             return
