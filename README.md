@@ -5,14 +5,14 @@ server that resolves the transmitter position by multilateration of the same
 message received by multiple clients.
 
 The corresponding server code is available at
-https://github.com/adsbexchange/mlat-server.
+https://github.com/wiedehopf/mlat-server.
 
 ## Building
 
 Due to conflicting packages with the same name, it's recommended to install in a Python virtual environment.
 First set the direcory you'd like to install to, if that path is not writeable by your user, use `sudo su` to become root first.
 ```
-VENV=/usr/local/share/adsbexchange/venv
+VENV=/usr/local/share/wiedehopf-mlat-client/venv
 ```
 Now the build / install, it's not a bad idea to recreate the virtual environment when rebuilding:
 ```
@@ -25,7 +25,7 @@ python3 setup.py install
 
 To run it, invoke:
 ```
-/usr/local/share/adsbexchange/venv/bin/mlat-client
+/usr/local/share/wiedehopf-mlat-client/venv/bin/mlat-client
 ```
 
 
