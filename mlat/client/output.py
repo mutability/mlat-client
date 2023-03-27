@@ -335,7 +335,7 @@ class BeastConnection(BasicConnection):
         self.last_write = monotonic_time()
 
     def heartbeat(self, now):
-        if (now - self.last_write) > 60.0:
+        if (now - self.last_write) > 30.0:
             # write a keepalive frame
             self.send(b'\x1A1\x00\x00\x00\x00\x00\x00\x00\x00\x00')
             self.last_write = now
