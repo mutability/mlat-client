@@ -179,7 +179,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
     heartbeat_interval = 120.0
     inactivity_timeout = 60.0
 
-    def __init__(self, host, port, uuid_path, handshake_data, offer_zlib, offer_udp, return_results):
+    def __init__(self, host, port, uuid_path, uuid, handshake_data, offer_zlib, offer_udp, return_results):
         super().__init__(host, port)
         self.uuid_path = uuid_path
         self.handshake_data = handshake_data
@@ -189,6 +189,19 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.coordinator = None
         self.udp_transport = None
         self.last_clock_reset = time.monotonic()
+
+
+        if uuid is not None:
+            self.uuid = uuid
+        else:
+            for path in self.uuid_path:
+                try:
+                    with open(path) as file:
+                        self.uuid = file.readline().rstrip('\n')
+                    break
+                except Exception:
+                    pass
+
 
         self.reset_connection()
 
@@ -342,15 +355,6 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
             compress_methods.append('zlib')
             compress_methods.append('zlib2')
 
-        uuid = None
-        for path in self.uuid_path:
-            try:
-                with open(path) as file:
-                    uuid = file.readline().rstrip('\n')
-                break
-            except Exception:
-                pass
-
         handshake_msg = {'version': 3,
                          'client_version': mlat.client.version.CLIENT_VERSION,
                          'compress': compress_methods,
@@ -360,7 +364,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
                          'udp_transport': 2 if self.offer_udp else False,
                          'return_result_format': 'ecef',
                          'return_stats': True,
-                         'uuid': uuid}
+                         'uuid': self.uuid}
         handshake_msg.update(self.handshake_data)
         if DEBUG:
             log("Handshake: {0}", handshake_msg)

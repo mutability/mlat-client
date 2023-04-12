@@ -75,6 +75,10 @@ location pin from the coverage maps.""",
                         dest='uuid_path',
                         help="Send the UUID in this file to the server",
                         required=False)
+    server.add_argument('--uuid',
+                        dest='uuid',
+                        help="Send this UUID to the server",
+                        required=False)
 
     logOptions = parser.add_argument_group('Log Options')
     logOptions.add_argument('--log-timestamps',
@@ -99,12 +103,19 @@ location pin from the coverage maps.""",
     receiver = ReceiverConnection(host=args.input_connect[0], port=args.input_connect[1],
                                   mode=options.connection_mode(args))
 
+    uuid_path = None
+    uuid = None
+    if args.uuid is not None:
+        uuid = [ args.uuid ]
     if args.uuid_path is not None:
         uuid_path = [ args.uuid_path ]
     else:
         uuid_path = [ '/usr/local/share/adsbexchange/adsbx-uuid', '/boot/adsbx-uuid' ]
 
-    server = JsonServerConnection(host=args.server[0], port=args.server[1], uuid_path=uuid_path,
+    server = JsonServerConnection(host=args.server[0],
+                                  port=args.server[1],
+                                  uuid_path=uuid_path,
+                                  uuid=uuid,
                                   handshake_data={'lat': args.lat,
                                                   'lon': args.lon,
                                                   'alt': args.alt,
