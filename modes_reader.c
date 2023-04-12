@@ -532,6 +532,19 @@ static PyObject *radarcape_position_to_dict(uint8_t *data)
 {
     float lat, lon, alt;
 
+#if PY_MAJOR_VERSION >= 3 && PY_MINOR_VERSION >=11
+    lat = PyFloat_Unpack4(data + 4, 1);
+    if (lat == -1.0 && PyErr_Occurred())
+        return NULL;
+
+    lon = PyFloat_Unpack4(data + 8, 1);
+    if (lon == -1.0 && PyErr_Occurred())
+        return NULL;
+
+    alt = PyFloat_Unpack4(data + 12, 1);
+    if (alt == -1.0 && PyErr_Occurred())
+        return NULL;
+#else
     lat = _PyFloat_Unpack4(data + 4, 1);
     if (lat == -1.0 && PyErr_Occurred())
         return NULL;
@@ -543,6 +556,7 @@ static PyObject *radarcape_position_to_dict(uint8_t *data)
     alt = _PyFloat_Unpack4(data + 12, 1);
     if (alt == -1.0 && PyErr_Occurred())
         return NULL;
+#endif
 
     return Py_BuildValue("{s:f,s:f,s:f}",
                          "lat", lat,
