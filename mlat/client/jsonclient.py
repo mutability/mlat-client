@@ -189,6 +189,7 @@ class JsonServerConnection(mlat.client.net.ReconnectingConnection):
         self.coordinator = None
         self.udp_transport = None
         self.last_clock_reset = time.monotonic()
+        self.uuid = None
 
 
         if uuid is not None:
