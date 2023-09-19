@@ -18,11 +18,12 @@
 
 from setuptools import setup, Extension
 
-import mlat.client.version
+CLIENT_VERSION = "unknown"
+exec(open('mlat/client/version.py').read())
 
 setup(name='MlatClient',
       description='Multilateration client package',
-      version=mlat.client.version.CLIENT_VERSION,
+      version=CLIENT_VERSION,
       author='Oliver Jowett',
       author_email='oliver.jowett@flightaware.com',
       packages=['mlat', 'mlat.client', 'flightaware', 'flightaware.client'],
