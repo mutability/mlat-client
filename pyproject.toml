@@ -9,7 +9,9 @@ authors = [
 ]
 description = "Multilateration client package"
 dependencies = []
-dynamic = ["version"]
+# entry-points is only dynamic to make setuptools complain less;
+# the setup.py values are identical to the project.scripts values below
+dynamic = ["version", "entry-points"]
 
 [project.scripts]
 mlat-client = "mlat.client.cli:main"
