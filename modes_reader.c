@@ -498,20 +498,30 @@ static PyObject *make_radarcape_status_event(modesreader *self, unsigned long lo
     return modesmessage_new_eventmessage(DF_EVENT_RADARCAPE_STATUS, timestamp, eventdata);
 }
 
+static double unpack_float4_le(uint8_t *p)
+{
+/* This API changed in Python 3.11, and the arg types vary a bit */
+#if PY_VERSION_HEX < 0x030B0000
+    return _PyFloat_Unpack4((const unsigned char *)p, 1);
+#else
+    return PyFloat_Unpack4((const char *)p, 1);
+#endif
+}
+
 /* create an event message for a radarcape position report */
 static PyObject *radarcape_position_to_dict(uint8_t *data)
 {
     float lat, lon, alt;
 
-    lat = _PyFloat_Unpack4(data + 4, 1);
+    lat = unpack_float4_le(data + 4);
     if (lat == -1.0 && PyErr_Occurred())
         return NULL;
 
-    lon = _PyFloat_Unpack4(data + 8, 1);
+    lon = unpack_float4_le(data + 8);
     if (lon == -1.0 && PyErr_Occurred())
         return NULL;
 
-    alt = _PyFloat_Unpack4(data + 12, 1);
+    alt = unpack_float4_le(data + 12);
     if (alt == -1.0 && PyErr_Occurred())
         return NULL;
 
