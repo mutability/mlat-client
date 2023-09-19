@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MlatClient"
+authors = [
+    {name = "Oliver Jowett", email = "oliver.jowett@flightaware.com"},
+]
+description = "Multilateration client package"
+dependencies = []
+dynamic = ["version"]
+
+[project.scripts]
+mlat-client = "mlat.client.cli:main"
+fa-mlat-client = "flightaware.client.cli:main"
+
+[tool.setuptools]
+packages = ['mlat', 'mlat.client', 'flightaware', 'flightaware.client']
+
+[tool.setuptools.dynamic]
+version = { attr = "mlat.client.version.CLIENT_VERSION" }
