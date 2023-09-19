@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 # FlightAware multilateration client
@@ -12,7 +11,7 @@ from mlat.client.util import log, log_exc
 from mlat.client import options
 
 
-def main():
+def _main():
     # piaware will timestamp our log messages itself, suppress the normal logging timestamps
     mlat.client.util.suppress_log_timestamps = True
 
@@ -48,12 +47,15 @@ def main():
     coordinator.run_until(lambda: adept.closed)
 
 
-if __name__ == '__main__':
+def main():
     try:
-        main()
+        _main()
     except KeyboardInterrupt:
         log("Exiting on SIGINT")
     except Exception:
         log_exc("Exiting on exception")
     else:
         log("Exiting on connection loss")
+
+if __name__ == '__main__':
+    main()

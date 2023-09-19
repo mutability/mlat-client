@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 # Part of mlat-client - an ADS-B multilateration client.

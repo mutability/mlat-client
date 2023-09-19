@@ -16,28 +16,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from distutils.core import setup, Extension
-from distutils.ccompiler import get_default_compiler
+from setuptools import setup, Extension
 
-# get the version from the source
-CLIENT_VERSION = "unknown"
-exec(open('mlat/client/version.py').read())
-
-more_warnings = False
-extra_compile_args = []
-if more_warnings and get_default_compiler() == 'unix':
-    # let's assume this is GCC
-    extra_compile_args.append('-Wpointer-arith')
-
-modes_ext = Extension('_modes',
-                      sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'],
-                      extra_compile_args=extra_compile_args)
+import mlat.client.version
 
 setup(name='MlatClient',
-      version=CLIENT_VERSION,
       description='Multilateration client package',
+      version=mlat.client.version.CLIENT_VERSION,
       author='Oliver Jowett',
-      author_email='oliver@mutability.co.uk',
+      author_email='oliver.jowett@flightaware.com',
       packages=['mlat', 'mlat.client', 'flightaware', 'flightaware.client'],
-      ext_modules=[modes_ext],
-      scripts=['mlat-client', 'fa-mlat-client'])
+      ext_modules=[
+          Extension('_modes',
+                    include_dirs=["."],
+                    sources=['_modes.c', 'modes_reader.c', 'modes_message.c', 'modes_crc.c'])],
+      entry_points={
+          'console_scripts': [
+              'mlat-client = mlat.client.cli:main',
+              'fa-mlat-client = flightaware.client.cli:main'
+          ]}
+      )
