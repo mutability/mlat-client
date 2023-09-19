@@ -7,10 +7,6 @@ message received by multiple clients.
 The corresponding server code is available at
 https://github.com/mutability/mlat-server.
 
-There is also support for running in a mode used to feed multilateration
-information to FlightAware via piaware. In this mode, the client is started
-automatically by piaware.
-
 ## Building
 
 To build a Debian (or Ubuntu, Raspbian, etc) package that includes config
@@ -23,15 +19,16 @@ This will build a .deb package in the parent directory. Install it with dpkg:
 
     $ sudo dpkg -i ../mlat-client_(version)_(architecture).deb
 
-To build/install on other systems using setuptools (client only):
+To build/install (client only) on other systems using pip (you might want
+to do this inside a virtualenv):
+
+    $ pip install .
+
+Or using the legacy setup.py:
 
     $ ./setup.py install
 
 ## Running
-
-If you are using this with piaware, you don't need to do anything special
-other than to make sure that fa-mlat-client is available on your $PATH.
-piaware will detect the presence of the client and start it when needed.
 
 If you are connecting to a third party multilateration server, contact the
 server's administrator for configuration instructions.
