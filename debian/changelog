@@ -1,4 +1,4 @@
-mlat-client (0.2.13) UNRELEASED; urgency=medium
+mlat-client (0.2.13) stable; urgency=medium
 
   * Support for Python 3.11 PyFloat_Unpack4 API change
   * Move the CLI scripts {fa-,}mlat-client into their respective packages;
@@ -8,7 +8,7 @@ mlat-client (0.2.13) UNRELEASED; urgency=medium
   * Switch package builds to use pybuild, since everything should be recent enough
     for that now.
 
- -- Oliver Jowett <oliver.jowett@flightaware.com>  Tue, 19 Sep 2023 00:53:42 +0800
+ -- Oliver Jowett <oliver.jowett@flightaware.com>  Mon, 23 Oct 2023 19:52:21 +0800
 
 mlat-client (0.2.12) stable; urgency=medium
 
